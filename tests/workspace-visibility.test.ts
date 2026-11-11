@@ -1,4 +1,4 @@
-import{test}from'node:test';import assert from'node:assert/strict';import{mkdtempSync,rmSync,readFileSync,realpathSync}from'node:fs';import{tmpdir}from'node:os';import{join}from'node:path';
+import{test}from'node:test';import assert from'node:assert/strict';import{mkdtempSync,rmSync,readFileSync,writeFileSync,realpathSync}from'node:fs';import{tmpdir}from'node:os';import{join}from'node:path';
 import{WorkspaceVisibility,type WorkspaceRegistryPort}from'../src/workspace-visibility.ts'
 test('disable hides only the King registration and sessions; enable restores membership, archive state and pins',async()=>{
  const path=realpathSync(mkdtempSync(join(tmpdir(),'dsh-visibility-')))
@@ -15,5 +15,16 @@ test('disable hides only the King registration and sessions; enable restores mem
   assert.deepEqual(registry.archivedSessionIds,['already-archived']);assert.deepEqual(registry.pinnedSessionIds,['main','unrelated'])
   await new WorkspaceVisibility(registry).hide(path);await new WorkspaceVisibility(registry).hide(path);await new WorkspaceVisibility(registry).show(path,'main')
   assert.deepEqual(registry.archivedSessionIds,['already-archived'])
+  await new WorkspaceVisibility(registry).forget(path)
+  await new WorkspaceVisibility(registry).show(path,'new-main')
+  assert.deepEqual(items[0].sessionIds,['new-main']);assert(registry.archivedSessionIds.includes('main'))
+  await new WorkspaceVisibility(registry).hide(path)
+  const stateFile=join(path,'.dsh-bots/sidebar-state.json')
+  const moved=JSON.parse(readFileSync(stateFile,'utf8'));moved.path='/old-location';writeFileSync(stateFile,JSON.stringify(moved))
+  await new WorkspaceVisibility(registry).show(path,'replacement-main')
+  assert.deepEqual(items[0].sessionIds,['replacement-main']);assert(registry.archivedSessionIds.includes('new-main'))
+  rmSync(path,{recursive:true,force:true})
+  await new WorkspaceVisibility(registry).forget(path)
+  assert.deepEqual(items.map(w=>w.title),['Other']);assert(registry.archivedSessionIds.includes('replacement-main'))
  }finally{rmSync(path,{recursive:true,force:true})}
 })

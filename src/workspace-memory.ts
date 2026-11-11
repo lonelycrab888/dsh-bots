@@ -55,6 +55,15 @@ export class WorkspaceMemory {
     this.db.prepare('DELETE FROM recall WHERE id=?').run(entry.id)
     if (!entry.archived) this.db.prepare('INSERT INTO recall VALUES(?,?)').run(entry.id,tokens)
   }
+  reset() {
+    this.db.exec('PRAGMA secure_delete=ON')
+    this.transaction('reset', undefined, () => {
+      this.db.exec('DELETE FROM memories; DELETE FROM recall; DELETE FROM audit;')
+      this.db.prepare("INSERT OR REPLACE INTO meta VALUES('legacy-imported','1')").run()
+      return { cleared:true }
+    })
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+  }
   importLegacy(memory: KingMemory) {
     if (this.db.prepare("SELECT value FROM meta WHERE key='legacy-imported'").get()) return
     this.transaction('import-legacy', undefined, () => {

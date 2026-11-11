@@ -1,3 +1,4 @@
+import type { ResetOptions, PendingReset } from './reset.ts'
 import { KING_REMOTE } from './king-remote.ts'
 import { watchActivation } from './lifecycle.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -16,8 +17,9 @@ function BotsIcon({ size }: { size: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block', flexShrink: 0 }}><path d="M12 3v3M9 3h6M5 9l-2 2v6l2 2M19 9l2 2v6l-2 2"/><rect x="5" y="6" width="14" height="15" rx="5"/><path d="M8 11l2 1M16 11l-2 1M9 16q3 2 6 0"/></svg>
 }
 
-interface CatalogSnapshot { workspace?: {path:string;sessionId:string}; library: Library; kingMemory: KingMemory; revision: number; writable: boolean }
+interface CatalogSnapshot { resetPending?:PendingReset|null; workspace?: {path:string;sessionId:string}; library: Library; kingMemory: KingMemory; revision: number; writable: boolean }
 interface CatalogAPI {
+  reset(options:ResetOptions,revision:number):Promise<void>
   pickDirectory():Promise<string|null>
   setWorkspace(path:string,revision:number):Promise<void>
   openKing():Promise<void>
@@ -66,7 +68,7 @@ function KingCard({ snapshot, busy, models, saveModel, catalog, reload }: { snap
   return <article className="dsh-bots-king">
     <div className="dsh-bots-name"><span className="dsh-bots-avatar" data-bot="coordinator">K</span><h2>Bots King</h2><span className="dsh-bots-badge">主 Bot · 专属对话与长期记忆</span></div>
     <p>与你单独讨论任务、创建并命名子 Bot。记忆保存在你选择的工作区，供主 Bot 的独聊和群聊共同检索。</p>
-    {!snapshot.workspace && <p className="dsh-bots-hint">首次使用：请选择 Bots King 的专属工作区。子 Bot 默认列表为空。</p>}
+    {!snapshot.workspace && <p className="dsh-bots-hint">请选择 Bots King 的专属工作区；选择工作区不会清空已有子 Bot。</p>}
     <label className="dsh-bots-model">主 Bot 工作区<input aria-label="Bots King 工作区目录" value={path} onChange={event=>setPath(event.target.value)} placeholder="选择或填写已有文件夹的绝对路径" disabled={disabled}/></label>
     <div className="dsh-bots-toolbar">
       <button type="button" disabled={disabled} onClick={()=>void run(async()=>{const selected=await catalog.pickDirectory();if(selected)setPath(selected)})}>选择文件夹</button>
@@ -76,10 +78,34 @@ function KingCard({ snapshot, busy, models, saveModel, catalog, reload }: { snap
       <div className="dsh-bots-toolbar"><button className="dsh-bots-primary" disabled={disabled} onClick={()=>void run(()=>catalog.openKing())}>与 Bots King 对话</button><button disabled={disabled} onClick={()=>setMemoryOpen(!memoryOpen)}>{memoryOpen?'收起记忆管理':'管理工作区记忆'}</button></div>
       <p className="dsh-bots-hint">可以说：“帮我创建两个子 Bot，一个负责架构，一个负责验收，名称和能力描述由你拟定。”此工作区仅供主 Bot 使用，不能新建普通对话或群聊；其他工作区的群聊会共享这份记忆。</p>
     </>}
+    <ResetPanel snapshot={snapshot} catalog={catalog} disabled={disabled} done={async()=>{setMemoryOpen(false);await reload()}}/>
     <ModelPicker value={snapshot.library.kingModel} groups={models} disabled={disabled} onChange={saveModel}/>
     {error && <p role="alert" className="dsh-bots-error">{error}</p>}
     {memoryOpen && snapshot.workspace && <WorkspaceMemoryPanel catalog={catalog} snapshot={snapshot} reload={reload}/>}
   </article>
+}
+
+function ResetPanel({snapshot,catalog,disabled,done}:{snapshot:CatalogSnapshot;catalog:CatalogAPI;disabled:boolean;done():Promise<void>}) {
+  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[confirmation,setConfirmation]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState('')
+  const [selected,setSelected]=useState<ResetOptions>({members:false,memory:false,sessions:false})
+  const pending=snapshot.resetPending,options=pending?.options??selected
+  async function submit(){
+    setBusy(true);setError('');setStatus('')
+    try{await catalog.reset(options,snapshot.revision);await done();setOpen(false);setConfirmation('');setSelected({members:false,memory:false,sessions:false});setStatus('所选数据已重置。若已解除旧会话关联，请重新选择工作区。')}
+    catch(e){setError(messageOf(e));await done().catch(()=>{})}finally{setBusy(false)}
+  }
+  return <section className="dsh-bots-reset">
+    <button type="button" disabled={disabled||busy} onClick={()=>{setOpen(!open);setConfirmation('');setError('')}}>重置 Bots 数据</button>
+    {pending&&<p role="alert">上次重置尚未完成，请打开重置面板继续完成原先选择的项目。</p>}
+    {open&&<div className="dsh-bots-editor">
+      <strong>选择要重置的项目</strong>
+      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 Bots King 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空当前工作区全部有效及已移出记忆和旧版迁移记忆；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
+      <p>只重置勾选项目。此操作不能在插件中撤销；原聊天历史、已导出的文件和其他工作区的记忆文件不会删除。重置后使用新的 Bot 执行上下文。</p>
+      <label>输入 RESET 确认<input aria-label="重置确认文字" value={confirmation} disabled={busy} onChange={e=>setConfirmation(e.target.value)} autoComplete="off"/></label>
+      <div className="dsh-bots-actions"><button type="button" disabled={busy} onClick={()=>setOpen(false)}>取消重置</button><button type="button" disabled={disabled||busy||confirmation!=='RESET'||!Object.values(options).some(Boolean)} onClick={()=>void submit()}>{busy?'正在重置…':pending?'继续未完成的重置':'确认重置所选数据'}</button></div>
+    </div>}
+    {error&&<p role="alert" className="dsh-bots-error">{error}</p>}{status&&<p role="status">{status}</p>}
+  </section>
 }
 
 function WorkspaceMemoryPanel({catalog,snapshot,reload}:{catalog:CatalogAPI;snapshot:CatalogSnapshot;reload():Promise<void>}) {
@@ -399,14 +425,14 @@ interface ClientContext {
   }
   remote: {
     $mount(contribution:unknown):Promise<()=>Promise<void>>
-    dshBots:{manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
+    dshBots:{reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
     directoryPicker:{pick():Promise<{ok:true;value:string|null}|{ok:false;error:{message:string}}>}
     $on(event: string, callback: () => void): () => void
     pluginManager: { listBundles(): Promise<{ ok: true; value: { name: string; enabled: boolean }[] } | { ok: false; error: { message: string } }> }
     session: { modelCatalog(): Promise<{ ok: true; value: { groups: ModelGroup[] } } | { ok: false; error: { message: string } }> }; settings: {
-    describe(): Promise<{ ok: true; value: { writable: boolean; namespaces: { ns: string; value: { library?: unknown; kingMemory?: unknown; kingWorkspace?: {path:string;sessionId:string} }; revision: number }[] } } | { ok: false; error: { message: string } }>
-    mutate(ns: string, ops: { op: 'set'; path: string[]; value: unknown }[], revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
-    update(ns: string, patch: unknown, revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
+    describe(): Promise<{ ok: true; value: { writable: boolean; namespaces: { ns: string; value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; kingWorkspace?: {path:string;sessionId:string} }; revision: number }[] } } | { ok: false; error: { message: string } }>
+    mutate(ns: string, ops: { op: 'set'; path: string[]; value: unknown }[], revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
+    update(ns: string, patch: unknown, revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
   }; commands: {
     execute(id: string, line: string, attachments: []): Promise<
       { ok: true; value?: { result: { kind: 'error' | 'success'; text?: string } } }
@@ -444,6 +470,11 @@ function mountClient(ctx: ClientContext) {
     return JSON.parse(result.value.text) as T
   }
   const catalog: CatalogAPI = {
+    async reset(options,revision){
+      const result=await ctx.remote.dshBots.reset({options,revision,confirmation:'RESET'})
+      if(!result.ok)throw new Error(result.error.message)
+      if(result.value.kind==='error')throw new Error(result.value.text)
+    },
     async pickDirectory(){const result=await ctx.remote.directoryPicker.pick();if(!result.ok)throw new Error(result.error.message);return result.value},
     async setWorkspace(path,revision){
       const existing=await catalog.load()
@@ -484,7 +515,7 @@ function mountClient(ctx: ClientContext) {
       if (!result.ok) throw new Error(result.error.message)
       const entry = result.value.namespaces.find(entry => entry.ns === 'dsh-bots')
       if (!entry) throw new Error('Bot 配置未加载，请检查宿主插件版本。')
-      return { workspace: entry.value.kingWorkspace ?? undefined, library: validateLibrary(entry.value.library), kingMemory: validateMemory(entry.value.kingMemory), revision: entry.revision, writable: result.value.writable }
+      return { resetPending:entry.value.resetPending, workspace: entry.value.kingWorkspace ?? undefined, library: validateLibrary(entry.value.library), kingMemory: validateMemory(entry.value.kingMemory), revision: entry.revision, writable: result.value.writable }
     },
     async save(library, revision) {
       const result = await ctx.remote.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: library }], revision)

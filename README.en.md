@@ -6,7 +6,13 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version: `v0.2.0`** · **Desktop tested with DeepSeek Harness `0.2.2-rc.1`** · Supports Desktop and Web
+**Current version: `v0.2.1`** · **Desktop tested with DeepSeek Harness `0.2.2-rc.1`** · Supports Desktop and Web
+
+## New in v0.2.1
+
+- **Selective reset**: Independently reset Bot members, King memory, and old conversation associations, with typed `RESET` confirmation.
+- **A fresh execution context**: Retire old IDs and stop injecting pre-reset history. Interrupted resets can resume.
+- **Workspace recovery**: Keep the Bots page available when its directory was deleted, and avoid restoring sessions tied to the old location of a moved folder.
 
 ## New in v0.2.0
 
@@ -78,10 +84,10 @@ Add the generated package to the appropriate profile:
 
 ```sh
 # Desktop (default macOS application path)
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.2.0.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.2.1.tgz"
 
 # Web
-dsh plugin --profile web add "$PWD/dsh-bots-0.2.0.tgz"
+dsh plugin --profile web add "$PWD/dsh-bots-0.2.1.tgz"
 ```
 
 ## Talk to Bots King directly
@@ -180,10 +186,28 @@ Disabling or uninstalling removes the Bots entry, group chat overlay, styles, an
 
 **Bot definitions, long-term memory, and group history are retained and can be restored after reinstallation.** This does not erase historical data or undo host settings you changed yourself while using the plugin.
 
+## Reset Bots data
+
+Open **Bots → Bots King → 重置 Bots 数据** (Reset Bots data), select the items to reset, type `RESET`, and confirm. Nothing is selected by default. Stop active Bot tasks before resetting.
+
+| Option | Result |
+| --- | --- |
+| **Bots members** | Deletes all child Bots, including disabled ones, while retaining King, its model, and the group size limit. Old IDs remain retired; recreated names receive new IDs |
+| **King memory** | Clears active, archived, and pinned entries, their index and prior audit contents in the selected workspace, plus legacy migration entries. Memory switches remain unchanged. Select a workspace first |
+| **Old conversation associations** | Unbinds the dedicated workspace and King conversation, archives its sessions, and makes old groups read-only. Choosing a workspace again creates a fresh dedicated King conversation |
+
+Only selected items are reset. Resetting associations alone preserves memory; selecting the original folder reconnects that memory store. Bot execution contexts are renewed without injecting pre-reset history. Interrupted resets retain their pending intent and resume after restart; Bot execution stays paused until completion, and the reset panel also offers a retry.
+
+**Reset cannot be undone through the plugin, but it does not delete original chat logs, exported files, or memory files in other workspace folders.** Selecting all options starts over; removing historical files from disk remains a separate host operation. If the workspace directory was manually deleted, startup clears the invalid association and retains Bot definitions so you can select an existing directory again. The plugin does not silently create a folder.
+
+<!-- Screenshot placeholder 6: Reset panel with three independent choices and the RESET confirmation field. Suggested path: assets/reset-data.png. -->
+
 ## Development and verification
 
 `npm run typecheck` checks types. `npm test` covers configuration validation, member selection, mention routing, task plans, memory, model and effort persistence, and activation cleanup. `npm run build` generates release files.
 
-Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling. All 35 tests passed before release. Desktop checks on the host version listed above covered the native composer, King-created members, group dispatch, memory across workspaces, application restart, disabling, and uninstall/reinstall recovery.
+Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling. All 46 tests passed before release. Desktop checks on the host version listed above covered the native composer, King-created members, group dispatch, memory across workspaces, application restart, disabling, and uninstall/reinstall recovery.
 
 `scripts/smoke.mjs` provides isolated Web model-stub tests and requires Chrome and the Playwright CLI. The full Web flow and all model combinations were not revalidated for this release; desktop results do not establish coverage for those combinations.
+
+The reset feature was checked through the UI in an isolated profile with synthetic data, including separate member, memory, and association resets and recovery from a missing workspace directory. The active desktop profile was not reset.

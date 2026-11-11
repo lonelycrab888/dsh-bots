@@ -149,3 +149,7 @@ button[aria-label="Bots"] { text-align: left; justify-content: flex-start; }
 .dsh-bots-king input:not([type="checkbox"]) { box-sizing:border-box; min-width:0; width:100%; font:inherit; padding:8px; border:1px solid var(--bots-border); border-radius:8px; color:inherit; background:var(--bots-bg); }
 .dsh-bots-king small { overflow-wrap:anywhere; }
 .dsh-bots-memory .dsh-bots-toolbar { flex-wrap:wrap; }
+
+.dsh-bots-reset{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color,#8884)}
+.dsh-bots-reset .dsh-bots-editor>label{display:flex;flex-direction:column;gap:6px}
+.dsh-bots-reset small{opacity:.75;line-height:1.5}

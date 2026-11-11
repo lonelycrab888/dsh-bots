@@ -47,7 +47,7 @@ export interface Member { id: BotId; name: string; duty: string; sessionId: stri
 export type Row =
   | { id: string; author: 'user' | 'notice'; text: string }
   | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' }
-export interface Group { mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[] }
+export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[] }
 
 /** An empty result asks the coordinator to select members. */
 export function resolveTargets(text: string, members: readonly Member[]): Member[] {

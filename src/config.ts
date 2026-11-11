@@ -1,3 +1,4 @@
+import type { PendingReset } from './reset.ts'
 import Schema from '@deepseek-ai/schemastery'
 import type { Volatile } from '@deepseek-ai/cordis'
 import { defaultMemory, validateMemory, type KingMemory } from './memory.ts'
@@ -6,10 +7,13 @@ import { defaultLibrary, validateLibrary, type Library } from './bots.ts'
 // One volatile value commits the catalog and limit together without remounting
 // the plugin or interrupting active conversations.
 export interface KingWorkspace { path: string; sessionId: string; legacyImported?: boolean }
-export interface Config { kingWorkspace: Volatile<KingWorkspace | null>; library: Volatile<Library>; kingMemory: Volatile<KingMemory> }
+export interface Config { resetEpoch:Volatile<number>; sessionEpoch:Volatile<number>; resetPending:Volatile<PendingReset|null>; kingWorkspace: Volatile<KingWorkspace | null>; library: Volatile<Library>; kingMemory: Volatile<KingMemory> }
 // Zod validates optional routes; Schema.object would materialize a missing route.
 const modelSchema = Schema.any()
 export const Config = Schema.object({
+  resetEpoch:Schema.number().step(1).min(0).default(0).volatile(),
+  sessionEpoch:Schema.number().step(1).min(0).default(0).volatile(),
+  resetPending:Schema.any().default(null).volatile(),
   kingWorkspace: Schema.any().default(null).volatile(),
   kingMemory: Schema.transform(Schema.object({
     enabled: Schema.boolean().default(true),

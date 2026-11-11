@@ -1,3 +1,4 @@
+import { performReset, finishReset, sessionIsCurrent, resetOptions, type ResetPort } from './reset.ts'
 import { WorkspaceVisibility, type WorkspaceRegistryPort } from './workspace-visibility.ts'
 import { assertRootCreation, isKingWorkspace, reservedWorkspaceNotice } from './workspace-policy.ts'
 import { modelForBot, availableMembers, redactDeletedBotIds, freshCoordinator } from './bots.ts'
@@ -5,7 +6,7 @@ import { bindTypertRemote } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
 import { KING_REMOTE, kingRequest } from './king-remote.ts'
 import { WorkspaceMemory } from './workspace-memory.ts'
-import { realpathSync } from 'node:fs'
+import { realpathSync, existsSync } from 'node:fs'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
@@ -33,8 +34,32 @@ export async function apply(ctx: Context, config: Config) {
   const activeTurns = new Map<AbortController, string>()
   const stores = new Map<string, WorkspaceMemory>()
   const visibility = new WorkspaceVisibility(ctx.get('workspaceRegistry') as unknown as WorkspaceRegistryPort)
-  const initialWorkspace=config.kingWorkspace.get()
-  if(initialWorkspace)await visibility.show(initialWorkspace.path,initialWorkspace.sessionId)
+  let resetting=false
+  const resetPort:ResetPort={
+    read:()=>({state:{library:validateLibrary(config.library.get()),kingMemory:validateMemory(config.kingMemory.get()),kingWorkspace:config.kingWorkspace.get(),resetEpoch:config.resetEpoch.get(),sessionEpoch:config.sessionEpoch.get(),resetPending:config.resetPending.get()},revision:ctx.settings.describe().find(entry=>entry.ns==='dsh-bots')!.revision}),
+    commit:async(patch,revision)=>{await ctx.settings.update('dsh-bots',patch,revision)},
+    clearMemory:async(selected)=>{
+      if(!selected||!existsSync(selected.path))return
+      const store=stores.get(selected.path)??new WorkspaceMemory(selected.path);stores.set(selected.path,store);store.reset()
+    },
+    forgetSessions:async(selected)=>{if(selected)await visibility.forget(selected.path)},
+  }
+  let recovery:Promise<void>|undefined,recoveryError=''
+  // Settings only exposes a namespace once its Cordis fiber is active.
+  ctx.on('internal/status',fiber=>{
+    if(fiber!==ctx.fiber||fiber.state!==2||recovery)return
+    resetting=true
+    recovery=(async()=>{
+      await finishReset(resetPort)
+      const selected=config.kingWorkspace.get()
+      if(!selected)return
+      if(existsSync(selected.path))await visibility.show(selected.path,selected.sessionId)
+      else{
+        await visibility.forget(selected.path)
+        await resetPort.commit({kingWorkspace:null,sessionEpoch:config.sessionEpoch.get()+1,resetEpoch:config.resetEpoch.get()+1},resetPort.read().revision)
+      }
+    })().catch(error=>{recoveryError=error instanceof Error?error.message:String(error)}).finally(()=>{resetting=false})
+  })
   ctx.effect(()=>async()=>{
     lifetime.abort()
     const selected=config.kingWorkspace.get()
@@ -52,7 +77,8 @@ export async function apply(ctx: Context, config: Config) {
     store.retireIds(config.library.get().deletedBotIds)
     return store
   }
-  const generation = () => JSON.stringify([config.library.get().deletedBotIds.length,config.kingWorkspace.get()?.path ?? ''])
+  const contextRevision=()=>config.library.get().deletedBotIds.length+config.resetEpoch.get()
+  const generation = () => JSON.stringify([contextRevision(),config.sessionEpoch.get(),config.kingWorkspace.get()?.path ?? ''])
   ctx.effect(() => () => { for (const store of stores.values()) store.close(); stores.clear() })
   ctx.on('settings/document-updated', ns => {
     if (ns !== 'dsh-bots') return
@@ -69,8 +95,21 @@ export async function apply(ctx: Context, config: Config) {
 
   const kingService = {
     ctx,
+    async reset(input:unknown){
+      try{
+        await recovery
+        const request=z.object({options:resetOptions,revision:z.number().int(),confirmation:z.literal('RESET')}).parse(input)
+        if(resetting||activeTurns.size)throw new Error('请先停止正在执行的 Bot 任务，再重置。')
+        resetting=true
+        try{await performReset(resetPort,request.options,request.revision);recoveryError=''}finally{resetting=false}
+        return {kind:'success',text:JSON.stringify({reset:true})}
+      }catch(error){return {kind:'error',text:error instanceof Error?error.message:String(error)}}
+    },
     async manage(agent: Agent, input: unknown) {
       try {
+        await recovery
+        if(recoveryError)throw new Error('工作区恢复未完成：'+recoveryError+'。可使用重置功能解除旧会话关联。')
+        if(resetting||config.resetPending.get())throw new Error('重置尚未完成，请先在 Bots 页面重试重置。')
         const request = kingRequest.parse(input)
         if (agent.session.header.origin === 'subagent') throw new Error('请在主 Bot 专属窗口操作。')
         if (request.action === 'configure' || request.action === 'bind') {
@@ -86,6 +125,7 @@ export async function apply(ctx: Context, config: Config) {
           const selected: KingWorkspace = { path, sessionId:String(agent.id), legacyImported:true }
           await ctx.settings.update('dsh-bots',{kingWorkspace:selected},entry.revision)
           appendPluginRecord(agent.session,'plugin:dsh-bots/king',{mode:'king'})
+          appendPluginRecord(agent.session,'plugin:dsh-bots/epoch',{value:config.sessionEpoch.get()})
           ensureCoordinator(agent)
           ctx.get('sessionTitle')?.rename(agent.session,'Bots King')
           await ctx.sessions.flush(agent.session)
@@ -122,6 +162,7 @@ export async function apply(ctx: Context, config: Config) {
     input: { hint: '<default|Bot IDs>' },
     recordInput: false,
     async handler({ agent, rawInput }) {
+      if(resetting||config.resetPending.get())return {kind:'error',text:'请先完成重置。'}
       if (agent.session.header.origin === 'subagent' || agent.status !== 'idle'
           || ctx.agents.turnBoundaryOf(agent.session).lastTurn !== 0) {
         return { kind: 'error', text: '请在新建会话发出第一条消息前选择群聊模式。' }
@@ -137,7 +178,7 @@ export async function apply(ctx: Context, config: Config) {
         return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
       }
       appendPluginRecord(agent.session, 'plugin:dsh-bots/members', members)
-      if (members.length) ensureCoordinator(agent)
+      if (members.length){appendPluginRecord(agent.session,'plugin:dsh-bots/epoch',{value:config.sessionEpoch.get()});ensureCoordinator(agent)}
       await ctx.sessions.flush(agent.session)
       return { kind: 'success' }
     },
@@ -160,6 +201,11 @@ export async function apply(ctx: Context, config: Config) {
   })
 
   ctx.on('agent/pre-step', async ({ agent, messages, signal, modelSelection }, next) => {
+    const existingGroup=groups.stateOf(agent.session).group
+    if(agent.session.header.origin!=='subagent'&&existingGroup&&(resetting||config.resetPending.get()||!sessionIsCurrent(existingGroup,config.sessionEpoch.get()))){
+      const text=resetting||config.resetPending.get()?'重置尚未完成，请在 Bots 页面重试。':'旧会话关联已重置，此会话仅保留历史。请从 Bots 页面创建新的主 Bot 对话，或在其他工作区新建群聊。'
+      addRows(agent,[{id:randomUUID(),author:'notice',text}]);await ctx.sessions.flush(agent.session);return {kind:'reject'}
+    }
     if (agent.session.header.origin !== 'subagent' && isKingWorkspace(agent.session.header.cwd,config.kingWorkspace.get()) && groups.stateOf(agent.session).group?.mode !== 'king') {
       if (!groups.stateOf(agent.session).group) throw new Error(reservedWorkspaceNotice)
       for (const message of messages.filter(item=>item.source.kind==='user')) {
@@ -198,8 +244,11 @@ export async function apply(ctx: Context, config: Config) {
 
   function ensureCoordinator(agent: Agent): Member {
     const group = groups.stateOf(agent.session).group!
-    const member = freshCoordinator(group.coordinator, config.library.get().deletedBotIds.length, group.rows.length, randomUUID, config.kingWorkspace.get()?.path)
-    if (JSON.stringify(member) !== JSON.stringify(group.coordinator)) appendPluginRecord(agent.session, 'plugin:dsh-bots/coordinator', member)
+    const member = freshCoordinator(group.coordinator, contextRevision(), group.rows.length, randomUUID, config.kingWorkspace.get()?.path)
+    if (JSON.stringify(member) !== JSON.stringify(group.coordinator)) {
+      if(group.mode!=='king'&&group.members.length)appendPluginRecord(agent.session,'plugin:dsh-bots/members',group.members.map(bot=>({...bot,sessionId:randomUUID()})))
+      appendPluginRecord(agent.session, 'plugin:dsh-bots/coordinator', member)
+    }
     return member
   }
 
@@ -213,7 +262,7 @@ export async function apply(ctx: Context, config: Config) {
       await ctx.sessions.flush(parent.session); return
     }
     const main = ensureCoordinator(parent)
-    group = { ...group, coordinator: main, members: availableMembers(group, validateLibrary(config.library.get())) }
+    group = { ...groups.stateOf(parent.session).group!, coordinator: main, members: availableMembers(groups.stateOf(parent.session).group!, validateLibrary(config.library.get())) }
     addRows(parent, [{ id, author: 'user', text }])
     let required: Member[]
     try {
@@ -319,7 +368,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
   async function askBot(parent: Agent, group: Group, member: Member, text: string, model: ModelSelection, signal: AbortSignal, instructions = '执行 Bots King 分派给你的任务，只输出给群聊的回复。', memorySnapshot?: KingMemory) {
     signal.throwIfAborted()
     if (member.id !== coordinatorId && !config.library.get().bots.some(bot => bot.id === member.id)) throw new Error('该 Bot 已删除，任务已取消。')
-    const startedRevision = config.library.get().deletedBotIds.length
+    const startedRevision = contextRevision()
     if (group.coordinator?.contextWorkspace !== config.kingWorkspace.get()?.path || (group.coordinator?.contextRevision ?? 0) !== startedRevision) throw new Error('成员已删除，本轮已取消，请重新发送。')
     model = modelForBot(config.library.get(), member.id, model) as ModelSelection
     const sessionId = SessionId(member.sessionId)
@@ -373,7 +422,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
           from: row.author === 'bot' ? (row.botId === coordinatorId ? coordinatorName : group.members.find(bot => bot.id === row.botId)?.name) : '用户',
           text: row.text.slice(0, 1800),
         }))
-      if (startedRevision !== config.library.get().deletedBotIds.length) throw new Error('成员已删除，本轮已取消，请重新发送。')
+      if (startedRevision !== contextRevision()) throw new Error('成员已删除，本轮已取消，请重新发送。')
       child.followup(createUserMessage({
         source: { kind: 'user' },
         content: [{ type: 'text', text: redactDeletedBotIds(JSON.stringify({ 群聊历史: history, 最新用户消息: text }), config.library.get().deletedBotIds) }],
@@ -382,7 +431,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
       await ctx.sessions.flush(child.session)
       signal.throwIfAborted()
       if (failure) throw new Error(failure)
-      if (startedRevision !== config.library.get().deletedBotIds.length) throw new Error('成员已删除，本轮已取消，请重新发送。')
+      if (startedRevision !== contextRevision()) throw new Error('成员已删除，本轮已取消，请重新发送。')
       const reply = redactDeletedBotIds(parts.join('\n').trim(), config.library.get().deletedBotIds)
       if (!reply) throw new Error('模型没有返回文本回复。')
       return reply

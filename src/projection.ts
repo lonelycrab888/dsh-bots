@@ -13,7 +13,7 @@ const row = z.union([
     status: z.enum(['working', 'done', 'error', 'stopped']),
   }),
 ])
-const group = z.object({ mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row) })
+const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row) })
 const stateSchema = z.object({ inherited: z.number(), group: group.nullable() })
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -28,6 +28,7 @@ declare module '@deepseek-ai/dsh-session/types' {
     'plugin:dsh-bots/rows': Group['rows']
     'plugin:dsh-bots/coordinator': Member
     'plugin:dsh-bots/king': { mode: 'king' }
+    'plugin:dsh-bots/epoch': { value:number }
   }
 }
 
@@ -35,17 +36,21 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 4,
+  stateVersion: 5,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
     if (event.seq < state.inherited) return state
     const record = pluginRecordOf(event)
-    if (record?.type === 'plugin:dsh-bots/king') return { ...state, group: { mode: 'king', members: [], rows: state.group?.rows ?? [], coordinator: state.group?.coordinator } }
+    if(record?.type==='plugin:dsh-bots/epoch' && state.group){
+      const parsed=z.object({value:z.number().int().nonnegative()}).safeParse(record.data)
+      return parsed.success?{...state,group:{...state.group,sessionEpoch:parsed.data.value}}:state
+    }
+    if (record?.type === 'plugin:dsh-bots/king') return { ...state, group: { sessionEpoch:state.group?.sessionEpoch, mode: 'king', members: [], rows: state.group?.rows ?? [], coordinator: state.group?.coordinator } }
     if (record?.type === 'plugin:dsh-bots/members') {
       const parsed = z.array(member).safeParse(record.data)
       return parsed.success
-        ? { ...state, group: parsed.data.length ? { members: parsed.data, coordinator: state.group?.coordinator, rows: state.group?.rows ?? [] } : null }
+        ? { ...state, group: parsed.data.length ? { sessionEpoch:state.group?.sessionEpoch, members: parsed.data, coordinator: state.group?.coordinator, rows: state.group?.rows ?? [] } : null }
         : state
     }
     if (record?.type === 'plugin:dsh-bots/coordinator' && state.group) {
