@@ -6,16 +6,24 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version: `v0.1.0`** · **Desktop tested with DeepSeek Harness `0.2.2-rc.1`** · Supports Desktop and Web
+**Current version: `v0.2.0`** · **Desktop tested with DeepSeek Harness `0.2.2-rc.1`** · Supports Desktop and Web
+
+## New in v0.2.0
+
+- **A dedicated King conversation**: Choose a workspace and talk directly to Bots King using the native composer.
+- **King-created members**: Ask Bots King to name child Bots, describe their capabilities, and save them to the library.
+- **Memory across workspaces**: Group chats in other workspaces share memory with the dedicated King conversation, without a fixed entry-count or group-count limit.
+- **Workspace cleanup and recovery**: Disabling or uninstalling hides the Bots workspace. Re-enabling or reinstalling restores it while preserving memory and history.
 
 ## How to use it
 
 <!-- Screenshot placeholder 1: Group chat overview showing the named replies, bottom member bar, and native message box. Suggested path: assets/group-chat.png. -->
 
-1. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities. A fresh installation shows only **Bots King**, the coordinator, with no preset child Bots. You create all child Bots yourself; Bots King joins every group automatically.
-2. **Start a group chat.** Create a conversation and choose a workspace. Select **群聊** (Group chat) near the message box, choose members, and click **确认成员** (Confirm members). Select **默认** (Default) to use Harness's native conversation behavior.
-3. **Send a task.** Describe your goal in the native message box and let Bots King assign the work. Use `@name` to restrict which child Bots participate in the current turn.
-4. **Read the results.** The timeline shows assignments, named member replies, and the coordinator's summary in order. Click a member below the timeline to insert a mention. The member bar scrolls horizontally when needed.
+1. **Choose the King workspace.** Open **Bots**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
+2. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities, or ask Bots King to create one in its dedicated conversation. A fresh installation shows only **Bots King**, the coordinator, with no preset child Bots. You create all child Bots yourself; Bots King joins every group automatically.
+3. **Start a group chat.** Create a conversation in a workspace other than the dedicated King workspace. Select **群聊** (Group chat) near the message box, choose members, and click **确认成员** (Confirm members). Select **默认** (Default) to use Harness's native conversation behavior.
+4. **Send a task.** Describe your goal in the native message box and let Bots King assign the work. Use `@name` to restrict which child Bots participate in the current turn.
+5. **Read the results.** The timeline shows assignments, named member replies, and the coordinator's summary in order. Click a member below the timeline to insert a mention. The member bar scrolls horizontally when needed.
 
 | What you want | Example prompt |
 | --- | --- |
@@ -52,7 +60,7 @@ dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#
 dsh web
 ```
 
-The local repository includes compiled files in `lib/`; include them when publishing. Desktop and Web use separate profiles. Bot definitions, long-term memories, and conversation data do not automatically sync between profiles.
+The local repository includes compiled files in `lib/`; include them when publishing. Desktop and Web use separate profiles. Bot definitions and conversations do not automatically sync between profiles. Memory is shared only when profiles explicitly select the same workspace directory.
 
 ### Build a local package
 
@@ -70,11 +78,23 @@ Add the generated package to the appropriate profile:
 
 ```sh
 # Desktop (default macOS application path)
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.1.0.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.2.0.tgz"
 
 # Web
-dsh plugin --profile web add "$PWD/dsh-bots-0.1.0.tgz"
+dsh plugin --profile web add "$PWD/dsh-bots-0.2.0.tgz"
 ```
+
+## Talk to Bots King directly
+
+After choosing a workspace, click **与 Bots King 对话** (Talk to Bots King) to open or resume its single dedicated conversation. It uses the native composer and stop control and requires no child Bots.
+
+For example: “Create two child Bots, one for architecture and one for quality assurance. Choose their names and describe their capabilities.” The host validates the proposed definitions and saves them with fresh IDs. Select the new members when creating a group; they do not automatically join existing groups.
+
+<!-- Screenshot placeholder 5: The dedicated King conversation showing a request to create child Bots and the resulting confirmation. Suggested path: assets/king-chat.png. -->
+
+**The dedicated workspace is reserved for Bots King.** New ordinary conversations and group chats are rejected there. Existing group history remains readable, but those groups cannot continue running. Create group chats in other workspaces.
+
+The first setup imports legacy saved memories once. Switching the King workspace selects an independent memory store in the new folder; the old folder's data is preserved and is not merged automatically. Groups in every workspace use the currently selected King workspace's memory store.
 
 ## Bot definitions and model settings
 
@@ -114,7 +134,7 @@ Bots King interprets the goal and plans tasks around the current members' respon
 
 The plugin checks the plan's members, task count, and mention restrictions. It attempts one correction for an invalid plan, then reports an error if validation still fails. Failed member tasks retain their error information for the coordinator to explain in its summary.
 
-A typical turn makes one planning request, one execution request per participating member, and one summary request. Token use depends on the task and number of members. **Defining Bots, selecting members, and changing settings do not call a model.**
+A typical turn makes one planning request, one execution request per participating member, and one summary request. Token use depends on the task and number of members. **Manually defining Bots, selecting members, and changing settings do not call a model. Asking Bots King to create members in conversation does call a model.**
 
 Use Harness's native stop button to cancel the current turn. Tasks that have not started will not be dispatched. Restarting restores members and history without automatically rerunning interrupted tasks.
 
@@ -126,18 +146,18 @@ Use Harness's native stop button to cancel the current turn. Tasks that have not
 | --- | --- | --- |
 | Bot definitions and model choices | Plugin configuration in the current profile | Groups in the same profile can reuse definitions |
 | Group history and Bot child sessions | Their own group conversation | Child Bots do not automatically read other groups' histories |
-| Bots King's personal long-term memory | Plugin configuration in the current profile | Shared by Bots King across groups in that profile |
+| Bots King's personal long-term memory | SQLite database in the selected King workspace | Shared by the dedicated King conversation and groups in other workspaces |
 
-Long-term memory stores explicit requests, stable preferences, and lasting background information. **It does not automatically memorize the full text of every past group chat.** By default, memories are extracted from the current user message and retain the supporting original text. Child Bot output is not automatically treated as a fact about the user. Only Bots King reads shared memory directly, though it may include relevant information in an assignment.
+Long-term memory stores explicit requests, stable preferences, and lasting background information. **It does not automatically memorize the full text of every past group chat.** When memory and automatic updates are enabled, memories are extracted from the current user message and retain the supporting original text. Child Bot output is not automatically treated as a fact about the user. Only Bots King reads shared memory directly, though it may include relevant information in an assignment.
 
-Open **Bots → Bots King → 管理长期记忆** (Manage long-term memory) to view, add, edit, remove, or restore entries. You can disable memory entirely or turn off automatic updates separately. You can also ask in a group chat:
+Open **Bots → Bots King → 管理工作区记忆** (Manage workspace memory) to search, browse pages, add, edit, pin, archive, restore, and export entries. You can disable memory entirely or turn off automatic updates separately. You can also ask in a group chat:
 
 ```text
 @Bots King Remember: when proposing a solution, give the conclusion first and then the implementation steps.
 @Bots King Forget my earlier preference about response formatting.
 ```
 
-Memory supports up to **32 active entries**, each containing at most **600 characters**. Active and removed entries together are limited to 128, with up to 3 updates per turn. When capacity is reached, the plugin asks you to manage existing entries instead of silently evicting them. Concurrent changes are checked against the configuration revision; refresh and retry after a conflict.
+There is no fixed total-entry limit and no limit tied to the number of group chats. Each entry can contain up to **600 characters**, with up to 3 automatic updates per turn. Local SQLite/FTS5 storage retrieves a bounded selection of pinned, matching, and recent entries for each request. Search uses keywords and Chinese bigrams rather than vector embeddings. See [memory design and references](MEMORY-DESIGN.md).
 
 Removing an entry stops future shared-memory injection but does not delete the original conversation. That group may still know the information from its own context. Disabling memory stops injection while retaining saved entries.
 
@@ -156,7 +176,7 @@ Disable or uninstall the plugin in the desktop **Plugins** panel. For Web CLI:
 dsh plugin --profile web remove dsh-bots
 ```
 
-Disabling or uninstalling removes the Bots entry, group chat overlay, styles, and listeners, restoring the native conversation layout. The plugin does not overwrite global API, model, or Agent Loop configuration.
+Disabling or uninstalling removes the Bots entry, group chat overlay, styles, and listeners, restoring the native conversation layout. The plugin does not overwrite global API, model, or Agent Loop configuration. The dedicated Bots workspace is also removed from the sidebar; its visible sessions are temporarily archived to prevent them from appearing as ungrouped sessions. Re-enabling or reinstalling restores the workspace and its previously visible sessions. Previously archived sessions stay archived. Workspace files, King memory, and conversation history are preserved.
 
 **Bot definitions, long-term memory, and group history are retained and can be restored after reinstallation.** This does not erase historical data or undo host settings you changed yourself while using the plugin.
 
@@ -164,4 +184,6 @@ Disabling or uninstalling removes the Bots entry, group chat overlay, styles, an
 
 `npm run typecheck` checks types. `npm test` covers configuration validation, member selection, mention routing, task plans, memory, model and effort persistence, and activation cleanup. `npm run build` generates release files.
 
-`scripts/smoke.mjs` provides isolated Web tests with a model stub and requires Chrome and the Playwright CLI. The current source passed 27 automated tests, including fresh-profile defaults, retired IDs, same-name recreation, coordinator context rotation, and memory ID cleanup. Earlier desktop checks covered cards, effort persistence, the native Team view, and disable/uninstall behavior. The new deletion interface has not yet been retested in the desktop app. Alignment after dragging the message-box width still needs manual verification; a reliable desktop automation result has not yet been obtained.
+Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling. All 35 tests passed before release. Desktop checks on the host version listed above covered the native composer, King-created members, group dispatch, memory across workspaces, application restart, disabling, and uninstall/reinstall recovery.
+
+`scripts/smoke.mjs` provides isolated Web model-stub tests and requires Chrome and the Playwright CLI. The full Web flow and all model combinations were not revalidated for this release; desktop results do not establish coverage for those combinations.

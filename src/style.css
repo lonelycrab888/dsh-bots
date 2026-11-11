@@ -146,3 +146,6 @@ button[aria-label="Bots"] { text-align: left; justify-content: flex-start; }
 .dsh-bots-layout-chain > .dsh-bots-room { pointer-events: none; }
 .dsh-bots-room > * { pointer-events: auto; }
 [data-conversation-content]:has(.dsh-bots-group-scroll) > [data-width-handle] { z-index: 12; }
+.dsh-bots-king input:not([type="checkbox"]) { box-sizing:border-box; min-width:0; width:100%; font:inherit; padding:8px; border:1px solid var(--bots-border); border-radius:8px; color:inherit; background:var(--bots-bg); }
+.dsh-bots-king small { overflow-wrap:anywhere; }
+.dsh-bots-memory .dsh-bots-toolbar { flex-wrap:wrap; }

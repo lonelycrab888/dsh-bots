@@ -77,6 +77,9 @@ try {
     if (await preview.isVisible()) await preview.click()
     await page.getByRole('button', { name: 'Bots', exact: true }).click()
     await page.getByText('尚未创建子 Bot。点击“新建 Bot”定义名称和职责，再创建群聊。', { exact: true }).waitFor()
+    await page.getByRole('textbox', { name: 'Bots King 工作区目录', exact: true }).fill(process.env.DSH_BOTS_SMOKE_WORKSPACE)
+    await page.getByRole('button', { name: '启用工作区', exact: true }).click()
+    await page.getByRole('button', { name: '与 Bots King 对话', exact: true }).waitFor()
     for (const [name, duty] of [['架构师', '提出技术方案'], ['审阅员', '审阅方案并提出验收建议']]) {
       await page.getByRole('button', { name: '新建 Bot', exact: true }).click()
       await page.getByRole('textbox', { name: 'Bot 名称', exact: true }).fill(name)
@@ -106,7 +109,7 @@ try {
     await log.getByText('审阅员 | 看到了架构说明', { exact: true }).waitFor()
     await log.getByText('Bots King | 汇总完成', { exact: true }).nth(1).waitFor()
     if (await log.locator('article[data-author=bot]').count() !== 6) throw new Error('Second turn should add plan, targeted reply and summary')
-  }).toString())
+  }).toString().replace('process.env.DSH_BOTS_SMOKE_WORKSPACE', JSON.stringify(docs)))
 
   const beforeRestart = await requests()
   assert.deepEqual(beforeRestart.map(item => item.role), ['Bots King', '架构师', 'Bots King', 'Bots King', '审阅员', 'Bots King'])

@@ -1,11 +1,13 @@
+import { KING_REMOTE } from './king-remote.ts'
 import { watchActivation } from './lifecycle.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { coordinatorId, coordinatorName, coordinatorDuty, validateLibrary, deleteBot, availableMembers, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
-import { MAX_MEMORIES, validateMemory, forgetBotIds, type KingMemory, type MemoryEntry } from './memory.ts'
+import type { MemoryPage } from './workspace-memory.ts'
+import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
 import { insertMention, type CurrentInput, type InsertionActions } from './mention.ts'
 
-export const inject = ['slots', 'sessions', 'conversation', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager']
+export const inject = ['slots', 'sessions', 'conversation', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager', 'workspaces', 'uiWorkspace', 'remote.directoryPicker']
 
 type ProjectionHook = (key: 'dshBots') => Group | null | undefined
 type Choose = (ids: BotId[]) => Promise<void>
@@ -14,14 +16,17 @@ function BotsIcon({ size }: { size: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block', flexShrink: 0 }}><path d="M12 3v3M9 3h6M5 9l-2 2v6l2 2M19 9l2 2v6l-2 2"/><rect x="5" y="6" width="14" height="15" rx="5"/><path d="M8 11l2 1M16 11l-2 1M9 16q3 2 6 0"/></svg>
 }
 
-interface CatalogSnapshot { library: Library; kingMemory: KingMemory; revision: number; writable: boolean }
+interface CatalogSnapshot { workspace?: {path:string;sessionId:string}; library: Library; kingMemory: KingMemory; revision: number; writable: boolean }
 interface CatalogAPI {
+  pickDirectory():Promise<string|null>
+  setWorkspace(path:string,revision:number):Promise<void>
+  openKing():Promise<void>
+  memory<T=unknown>(request:Record<string,unknown>):Promise<T>
   subscribe(refresh: () => void): () => void
   remove(id: string, snapshot: CatalogSnapshot): Promise<CatalogSnapshot>
   models(): Promise<ModelGroup[]>
   load(): Promise<CatalogSnapshot>
   save(library: Library, revision: number): Promise<CatalogSnapshot>
-  saveMemory(memory: KingMemory, revision: number): Promise<CatalogSnapshot>
 }
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error)
 
@@ -47,54 +52,58 @@ function ModelPicker({ value, groups, disabled, onChange }: { value?: BotModel; 
   </select></label></div>
 }
 
-function KingCard({ snapshot, busy, save, models, saveModel }: { snapshot: CatalogSnapshot; busy: boolean; models: ModelGroup[]; saveModel(model?: BotModel): void; save(memory: KingMemory, message: string): Promise<boolean> }) {
-  const [expanded, setExpanded] = useState(false)
-  const [showArchived, setShowArchived] = useState(false)
-  const [draft, setDraft] = useState<{ id?: string; text: string }>()
-  const memory = snapshot.kingMemory
-  const count = memory.entries.filter(entry => !entry.archived).length
+function KingCard({ snapshot, busy, models, saveModel, catalog, reload }: { snapshot: CatalogSnapshot; busy: boolean; models: ModelGroup[]; saveModel(model?: BotModel): void; catalog: CatalogAPI; reload(): Promise<void> }) {
+  const [path, setPath] = useState(snapshot.workspace?.path ?? '')
+  useEffect(()=>{setPath(snapshot.workspace?.path ?? '')},[snapshot.workspace?.path])
+  const [working, setWorking] = useState(false)
+  const [error, setError] = useState('')
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  async function run(action: () => Promise<unknown>) {
+    setWorking(true); setError('')
+    try { await action() } catch(error) { setError(messageOf(error)) } finally { setWorking(false) }
+  }
+  const disabled=busy || working || !snapshot.writable
   return <article className="dsh-bots-king">
-    <div className="dsh-bots-name"><span className="dsh-bots-avatar" data-bot="coordinator">K</span><h2>Bots King</h2><span className="dsh-bots-badge">主 Bot · 自动加入</span></div>
-    <p>{coordinatorDuty}</p><code>@Bots King</code>
-    <ModelPicker value={snapshot.library.kingModel} groups={models} disabled={busy || !snapshot.writable} onChange={saveModel} />
+    <div className="dsh-bots-name"><span className="dsh-bots-avatar" data-bot="coordinator">K</span><h2>Bots King</h2><span className="dsh-bots-badge">主 Bot · 专属对话与长期记忆</span></div>
+    <p>与你单独讨论任务、创建并命名子 Bot。记忆保存在你选择的工作区，供主 Bot 的独聊和群聊共同检索。</p>
+    {!snapshot.workspace && <p className="dsh-bots-hint">首次使用：请选择 Bots King 的专属工作区。子 Bot 默认列表为空。</p>}
+    <label className="dsh-bots-model">主 Bot 工作区<input aria-label="Bots King 工作区目录" value={path} onChange={event=>setPath(event.target.value)} placeholder="选择或填写已有文件夹的绝对路径" disabled={disabled}/></label>
     <div className="dsh-bots-toolbar">
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? '收起长期记忆' : '管理长期记忆'} · {count}/{MAX_MEMORIES}</button>
-      <span>{memory.enabled ? '跨群聊记忆已开启' : '跨群聊记忆已关闭'}</span>
+      <button type="button" disabled={disabled} onClick={()=>void run(async()=>{const selected=await catalog.pickDirectory();if(selected)setPath(selected)})}>选择文件夹</button>
+      <button type="button" disabled={disabled || !path.trim()} onClick={()=>void run(async()=>{await catalog.setWorkspace(path.trim(),snapshot.revision);await reload()})}>{snapshot.workspace ? '切换工作区' : '启用工作区'}</button>
     </div>
-    {expanded && <div className="dsh-bots-memory">
-      <p className="dsh-bots-hint">同一桌面配置的群聊共享，重启后保留。仅 Bots King 直接读取；它可能将相关信息用于任务分派。移出长期记忆不会删除原聊天记录。</p>
-      <label><input type="checkbox" aria-label="启用 Bots King 长期记忆" checked={memory.enabled} disabled={busy || !snapshot.writable}
-        onChange={event => void save({ ...memory, enabled: event.target.checked }, event.target.checked ? 'Bots King 长期记忆已启用。' : '长期记忆已关闭，已存内容保留但不再注入。')} />启用长期记忆</label>
-      <label><input type="checkbox" aria-label="从群聊自动更新长期记忆" checked={memory.autoRemember} disabled={busy || !memory.enabled || !snapshot.writable}
-        onChange={event => void save({ ...memory, autoRemember: event.target.checked }, '自动记忆设置已保存。')} />从群聊记住明确要求、稳定偏好与长期背景</label>
-      <p className="dsh-bots-hint">可以说“@Bots King 请记住：……”或“@Bots King 请忘记……”。不需要导入全部历史。</p>
-      <div className="dsh-bots-toolbar">
-        <button type="button" disabled={busy || !!draft || !snapshot.writable || count >= MAX_MEMORIES} onClick={() => setDraft({ text: '' })}>添加长期记忆</button>
-        <label><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} />显示已移出记忆</label>
-      </div>
-      {draft && <form className="dsh-bots-editor" onSubmit={async event => {
-        event.preventDefault()
-        const entry: MemoryEntry = { id: draft.id ?? crypto.randomUUID(), text: draft.text, source: 'manual', archived: false, updatedAt: new Date().toISOString() }
-        const entries = draft.id ? memory.entries.map(item => item.id === draft.id ? entry : item) : [...memory.entries, entry]
-        if (await save({ ...memory, entries }, '长期记忆已保存，Bots King 下次回复时生效。')) setDraft(undefined)
-      }}>
-        <label>记忆内容<textarea aria-label="长期记忆内容" value={draft.text} rows={3} required maxLength={600} disabled={busy} onChange={event => setDraft({ ...draft, text: event.target.value })} /></label>
-        <div className="dsh-bots-actions"><button type="button" disabled={busy} onClick={() => setDraft(undefined)}>取消记忆编辑</button><button type="submit" disabled={busy || !draft.text.trim()}>保存长期记忆</button></div>
-      </form>}
-      <div className="dsh-bots-memory-list">
-        {memory.entries.filter(entry => showArchived || !entry.archived).map(entry => <article key={entry.id}>
-          <p>{entry.text}</p>
-          <small>{entry.archived ? '已移出 · ' : ''}{entry.source === 'manual' ? '手动设置' : '来自群聊'} · {new Date(entry.updatedAt).toLocaleString()}</small>
-          {entry.evidence && <details><summary>查看记忆依据</summary><p>{entry.evidence}</p></details>}
-          <div className="dsh-bots-actions">
-            {!entry.archived && <button type="button" disabled={busy || !!draft || !snapshot.writable} onClick={() => setDraft({ id: entry.id, text: entry.text })}>编辑记忆</button>}
-            <button type="button" disabled={busy || !!draft || !snapshot.writable} onClick={() => void save({ ...memory, entries: memory.entries.map(item => item.id === entry.id ? { ...item, archived: !item.archived, updatedAt: new Date().toISOString() } : item) }, entry.archived ? '记忆已恢复。' : '已移出长期记忆，可在已移出列表中恢复。')}>{entry.archived ? '恢复记忆' : '移出记忆'}</button>
-          </div>
-        </article>)}
-      </div>
-      {!count && <p>暂无有效长期记忆。可手动添加，或在群聊中告诉 Bots King 要记住什么。</p>}
-    </div>}
+    {snapshot.workspace && <><small>记忆位置：{snapshot.workspace.path}/.dsh-bots/king-memory.sqlite</small>
+      <div className="dsh-bots-toolbar"><button className="dsh-bots-primary" disabled={disabled} onClick={()=>void run(()=>catalog.openKing())}>与 Bots King 对话</button><button disabled={disabled} onClick={()=>setMemoryOpen(!memoryOpen)}>{memoryOpen?'收起记忆管理':'管理工作区记忆'}</button></div>
+      <p className="dsh-bots-hint">可以说：“帮我创建两个子 Bot，一个负责架构，一个负责验收，名称和能力描述由你拟定。”此工作区仅供主 Bot 使用，不能新建普通对话或群聊；其他工作区的群聊会共享这份记忆。</p>
+    </>}
+    <ModelPicker value={snapshot.library.kingModel} groups={models} disabled={disabled} onChange={saveModel}/>
+    {error && <p role="alert" className="dsh-bots-error">{error}</p>}
+    {memoryOpen && snapshot.workspace && <WorkspaceMemoryPanel catalog={catalog} snapshot={snapshot} reload={reload}/>}
   </article>
+}
+
+function WorkspaceMemoryPanel({catalog,snapshot,reload}:{catalog:CatalogAPI;snapshot:CatalogSnapshot;reload():Promise<void>}) {
+  const [page,setPage]=useState<MemoryPage>()
+  const [query,setQuery]=useState(''), [search,setSearch]=useState('')
+  const [archived,setArchived]=useState(false),[offset,setOffset]=useState(0)
+  const [draft,setDraft]=useState<{id?:string;text:string}>()
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState('')
+  async function load(){setBusy(true);setError('');try{setPage(await catalog.memory<MemoryPage>({action:'list',query:search,archived,offset}))}catch(e){setError(messageOf(e))}finally{setBusy(false)}}
+  useEffect(()=>{void load()},[search,archived,offset,snapshot.workspace?.path])
+  async function edit(entry:Record<string,unknown>){if(!page)return;setBusy(true);setError('');try{await catalog.memory({action:'edit',entry,revision:page.revision});setDraft(undefined);await load()}catch(e){setError(messageOf(e));setBusy(false)}}
+  async function settings(change:Record<string,boolean>){setBusy(true);setError('');try{await catalog.memory({action:'settings',...change});await reload()}catch(e){setError(messageOf(e))}finally{setBusy(false)}}
+  return <div className="dsh-bots-memory">
+    <p>已保存 {page?.active ?? '…'} 条有效记忆，无固定条数上限。每次只检索相关条目，固定记忆优先进入上下文。</p>
+    <label><input type="checkbox" checked={snapshot.kingMemory.enabled} disabled={busy} onChange={e=>void settings({enabled:e.target.checked})}/>启用长期记忆</label>
+    <label><input type="checkbox" checked={snapshot.kingMemory.autoRemember} disabled={busy} onChange={e=>void settings({autoRemember:e.target.checked})}/>从主 Bot 对话与群聊自动更新记忆</label>
+    <form onSubmit={e=>{e.preventDefault();setOffset(0);setSearch(query)}} className="dsh-bots-toolbar"><input aria-label="搜索工作区记忆" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索记忆内容"/><button disabled={busy}>搜索记忆</button></form>
+    <label><input type="checkbox" checked={archived} onChange={e=>{setArchived(e.target.checked);setOffset(0)}}/>查看已移出记忆</label>
+    <div className="dsh-bots-toolbar"><button disabled={busy} onClick={()=>setDraft({text:''})}>添加长期记忆</button><button disabled={busy} onClick={()=>void load()}>刷新记忆</button><button disabled={busy} onClick={()=>void catalog.memory<{path:string}>({action:'export'}).then(result=>setStatus(`已导出：${result.path}`)).catch(e=>setError(messageOf(e)))}>导出记忆</button></div>
+    {draft && <form className="dsh-bots-editor" onSubmit={e=>{e.preventDefault();void edit(draft)}}><label>记忆内容<textarea aria-label="长期记忆内容" value={draft.text} maxLength={600} required onChange={e=>setDraft({...draft,text:e.target.value})}/></label><div className="dsh-bots-actions"><button type="button" onClick={()=>setDraft(undefined)}>取消记忆编辑</button><button disabled={busy||!draft.text.trim()}>保存长期记忆</button></div></form>}
+    {error && <p role="alert" className="dsh-bots-error">{error}</p>}{status && <p role="status">{status}</p>}
+    <div className="dsh-bots-memory-list">{page?.entries.map(entry=><article key={entry.id}><p>{entry.text}</p><small>{entry.pinned?'固定 · ':''}{entry.source==='manual'?'手动':'来自对话'} · {new Date(entry.updatedAt).toLocaleString()}</small><div className="dsh-bots-actions"><button disabled={busy} onClick={()=>setDraft({id:entry.id,text:entry.text})}>编辑记忆</button><button disabled={busy} onClick={()=>void edit({id:entry.id,pinned:!entry.pinned})}>{entry.pinned?'取消固定':'固定记忆'}</button><button disabled={busy} onClick={()=>void edit({id:entry.id,archived:!entry.archived})}>{entry.archived?'恢复记忆':'移出记忆'}</button></div></article>)}</div>
+    {!page?.entries.length && <p>暂无匹配的记忆。</p>}<div className="dsh-bots-toolbar"><button disabled={busy||!offset} onClick={()=>setOffset(Math.max(0,offset-50))}>上一页</button><span>{page?.entries.length?offset+1:0}–{offset+(page?.entries.length??0)} / {page?.total??0}</span><button disabled={busy||offset+50>=(page?.total??0)} onClick={()=>setOffset(offset+50)}>下一页</button></div>
+  </div>
 }
 
 function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
@@ -146,19 +155,6 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
     } catch (error) { setError(`${messageOf(error)}。请刷新后重试。`) }
     finally { setBusy(false) }
   }
-  async function saveMemory(memory: KingMemory, message: string): Promise<boolean> {
-    if (!snapshot) return false
-    setBusy(true); setError(''); setStatus('')
-    try {
-      const next = await catalog.saveMemory(validateMemory(memory), snapshot.revision)
-      setSnapshot(next)
-      setStatus(message)
-      return true
-    } catch (error) {
-      setError(`${messageOf(error)}。配置可能已在其他群聊更新，请刷新后再试。`)
-      return false
-    } finally { setBusy(false) }
-  }
   return <section className="dsh-bots-library dsh-bots">
     <h1>Bots</h1>
     <p className="dsh-bots-hint">定义各成员的名称和职责。Bots King 自动加入群聊，负责分派任务与汇总结果。</p>
@@ -170,7 +166,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
         onClick={() => { setEdit({ id: `bot-${crypto.randomUUID()}`, name: '', duty: '', archived: false }); setStatus(''); setError('') }}>新建 Bot</button>
     </div>
     {!snapshot ? <p>正在加载 Bot 定义…</p> : <>
-      <KingCard snapshot={snapshot} busy={busy || !!edit} save={saveMemory} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'Bots King 模型已保存，下次执行生效。')} />
+      <KingCard snapshot={snapshot} busy={busy || !!edit} catalog={catalog} reload={load} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'Bots King 模型已保存，下次执行生效。')} />
       <form className="dsh-bots-settings" onSubmit={event => {
         event.preventDefault()
         void save({ ...snapshot.library, maxMembers: Number(limit) }, '群聊人数上限已保存。')
@@ -251,6 +247,7 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
     } catch (error) { setError(messageOf(error)) }
     finally { setSaving(false) }
   }
+  if (group?.mode === 'king') return null
   return <div className="dsh-bots dsh-bots-mode">
     <div className="dsh-bots-segment" role="group" aria-label="对话模式">
       <button type="button" aria-pressed={!group && !editing} disabled={saving} onClick={() => { setEditing(false); setError(''); if (group) void save([]) }}>默认</button>
@@ -348,7 +345,7 @@ function GroupTimeline({ useProjection, inputActions, mention, catalog }: {
 
   return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
     <div className="dsh-bots-members">
-      <strong>群聊</strong>
+      <strong>{group.mode==='king'?'Bots King · 专属对话':'群聊'}</strong>
       {[...(group.coordinator ? [{ ...group.coordinator, name: coordinatorName, duty: coordinatorDuty }] : []), ...(library ? availableMembers(group, library) : [])].map(member => <button key={member.id} type="button"
         title={member.duty} onPointerDown={event => event.preventDefault()} onClick={() => {
           mention(member.name, inputActions)
@@ -358,7 +355,7 @@ function GroupTimeline({ useProjection, inputActions, mention, catalog }: {
       </button>)}
     </div>
     {group.rows.length === 0
-      ? <p className="dsh-bots-hint">直接描述任务，由 Bots King 分派并汇总；也可以 @ 指定成员。</p>
+      ? <p className="dsh-bots-hint">{group.mode==='king'?'与 Bots King 单独交流，告诉它要记住什么，或请它创建并命名子 Bot。':'直接描述任务，由 Bots King 分派并汇总；也可以 @ 指定成员。'}</p>
       : <div className="dsh-bots-timeline" ref={timeline} role="log" aria-label="群聊时间线"
           onScroll={event => {
             const log = event.currentTarget
@@ -383,13 +380,16 @@ function GroupTimeline({ useProjection, inputActions, mention, catalog }: {
 
 interface ClientContext {
   on(event: string, callback: () => void): () => void
-  plugin(plugin: { apply(ctx: ClientContext): void }): { dispose(): unknown }
+  plugin(plugin: { inject?:string[]; apply(ctx: ClientContext): void }): { dispose(): unknown }
   effect(setup: () => () => void): void
   slots: {
     inject(name: string, register: () => unknown): void
     register(options: Record<string, unknown>, component: unknown): unknown
   }
+  uiWorkspace: {openSession(id:string):void}
+  workspaces: {create(input:{path:string}):Promise<{workspaceId:string;path:string}>}
   sessions: {
+    create(input:{workspaceId:string}):Promise<string>
     binding(id: string): {
       ctx: unknown
       session: {
@@ -398,12 +398,15 @@ interface ClientContext {
     } | undefined
   }
   remote: {
+    $mount(contribution:unknown):Promise<()=>Promise<void>>
+    dshBots:{manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
+    directoryPicker:{pick():Promise<{ok:true;value:string|null}|{ok:false;error:{message:string}}>}
     $on(event: string, callback: () => void): () => void
     pluginManager: { listBundles(): Promise<{ ok: true; value: { name: string; enabled: boolean }[] } | { ok: false; error: { message: string } }> }
     session: { modelCatalog(): Promise<{ ok: true; value: { groups: ModelGroup[] } } | { ok: false; error: { message: string } }> }; settings: {
-    describe(): Promise<{ ok: true; value: { writable: boolean; namespaces: { ns: string; value: { library?: unknown; kingMemory?: unknown }; revision: number }[] } } | { ok: false; error: { message: string } }>
-    mutate(ns: string, ops: { op: 'set'; path: string[]; value: unknown }[], revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown }; revision: number } } | { ok: false; error: { message: string } }>
-    update(ns: string, patch: unknown, revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown }; revision: number } } | { ok: false; error: { message: string } }>
+    describe(): Promise<{ ok: true; value: { writable: boolean; namespaces: { ns: string; value: { library?: unknown; kingMemory?: unknown; kingWorkspace?: {path:string;sessionId:string} }; revision: number }[] } } | { ok: false; error: { message: string } }>
+    mutate(ns: string, ops: { op: 'set'; path: string[]; value: unknown }[], revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
+    update(ns: string, patch: unknown, revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
   }; commands: {
     execute(id: string, line: string, attachments: []): Promise<
       { ok: true; value?: { result: { kind: 'error' | 'success'; text?: string } } }
@@ -416,7 +419,8 @@ interface ClientContext {
 
 // A package's browser module can outlive its host bundle. Own all visual effects
 // in a disposable child scope and follow the native bundle enable state.
-export function apply(ctx: ClientContext) {
+export async function apply(ctx: ClientContext) {
+  await ctx.remote.$mount(KING_REMOTE)
   ctx.effect(() => watchActivation({
     async read() {
       const result = await ctx.remote.pluginManager.listBundles()
@@ -428,12 +432,37 @@ export function apply(ctx: ClientContext) {
       const reset = ctx.on('connection/reset', refresh)
       return () => { off(); reset() }
     },
-    mount: () => ctx.plugin({ apply: mountClient }),
+    mount: () => ctx.plugin({ inject:['remote.dshBots'], apply: mountClient }),
   }))
 }
 
 function mountClient(ctx: ClientContext) {
+  async function command<T>(id:string, request:Record<string,unknown>):Promise<T> {
+    const result=await ctx.remote.dshBots.manage(id,request)
+    if(!result.ok)throw new Error(result.error.message)
+    if(result.value.kind==='error')throw new Error(result.value.text)
+    return JSON.parse(result.value.text) as T
+  }
   const catalog: CatalogAPI = {
+    async pickDirectory(){const result=await ctx.remote.directoryPicker.pick();if(!result.ok)throw new Error(result.error.message);return result.value},
+    async setWorkspace(path,revision){
+      const existing=await catalog.load()
+      if(existing.workspace?.path===path){await catalog.openKing();return}
+      const selected=await ctx.workspaces.create({path})
+      if(existing.workspace?.path===selected.path){await catalog.openKing();return}
+      const id=await ctx.sessions.create({workspaceId:selected.workspaceId})
+      await command(id,{action:'configure',path:selected.path,revision})
+    },
+    async openKing(){
+      const snapshot=await catalog.load()
+      if(!snapshot.workspace)throw new Error('请先选择主 Bot 工作区。')
+      ctx.uiWorkspace.openSession(snapshot.workspace.sessionId)
+    },
+    async memory<T>(request:Record<string,unknown>):Promise<T>{
+      const snapshot=await catalog.load()
+      if(!snapshot.workspace)throw new Error('请先选择主 Bot 工作区。')
+      return command<T>(snapshot.workspace.sessionId,request)
+    },
     subscribe: refresh => ctx.remote.$on('settings/document-updated', refresh),
     async remove(id, snapshot) {
       const library = deleteBot(snapshot.library, id)
@@ -443,7 +472,7 @@ function mountClient(ctx: ClientContext) {
         { op: 'set', path: ['kingMemory'], value: kingMemory },
       ], snapshot.revision)
       if (!result.ok) throw new Error(result.error.message)
-      return { library: validateLibrary(result.value.value.library), kingMemory: validateMemory(result.value.value.kingMemory), revision: result.value.revision, writable: true }
+      return catalog.load()
     },
     async models() {
       const result = await ctx.remote.session.modelCatalog()
@@ -455,17 +484,12 @@ function mountClient(ctx: ClientContext) {
       if (!result.ok) throw new Error(result.error.message)
       const entry = result.value.namespaces.find(entry => entry.ns === 'dsh-bots')
       if (!entry) throw new Error('Bot 配置未加载，请检查宿主插件版本。')
-      return { library: validateLibrary(entry.value.library), kingMemory: validateMemory(entry.value.kingMemory), revision: entry.revision, writable: result.value.writable }
-    },
-    async saveMemory(memory, revision) {
-      const result = await ctx.remote.settings.update('dsh-bots', { kingMemory: memory }, revision)
-      if (!result.ok) throw new Error(result.error.message)
-      return { library: validateLibrary(result.value.value.library), kingMemory: validateMemory(result.value.value.kingMemory), revision: result.value.revision, writable: true }
+      return { workspace: entry.value.kingWorkspace ?? undefined, library: validateLibrary(entry.value.library), kingMemory: validateMemory(entry.value.kingMemory), revision: entry.revision, writable: result.value.writable }
     },
     async save(library, revision) {
       const result = await ctx.remote.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: library }], revision)
       if (!result.ok) throw new Error(result.error.message)
-      return { library: validateLibrary(result.value.value.library), kingMemory: validateMemory(result.value.value.kingMemory), revision: result.value.revision, writable: true }
+      return catalog.load()
     },
   }
 

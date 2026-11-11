@@ -43,11 +43,11 @@ export function validateLibrary(value: unknown): Library {
   if (!parsed.success) throw new Error(parsed.error.issues.map(issue => issue.message).join('；'))
   return parsed.data
 }
-export interface Member { id: BotId; name: string; duty: string; sessionId: string; contextRevision?: number; historyStart?: number }
+export interface Member { id: BotId; name: string; duty: string; sessionId: string; contextWorkspace?: string; contextRevision?: number; historyStart?: number }
 export type Row =
   | { id: string; author: 'user' | 'notice'; text: string }
   | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' }
-export interface Group { members: Member[]; coordinator?: Member; rows: Row[] }
+export interface Group { mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[] }
 
 /** An empty result asks the coordinator to select members. */
 export function resolveTargets(text: string, members: readonly Member[]): Member[] {
@@ -72,12 +72,12 @@ export function selectMembers(ids: string[], library: { readonly maxMembers: num
     return { id: bot.id, name: bot.name, duty: bot.duty, sessionId: previous.find(member => member.id === id)?.sessionId ?? uuid() }
   })
 }
-export interface Plan { tasks: { botId: string; task: string }[]; reply?: string; memoryActions?: unknown }
+export interface Plan { tasks: { botId: string; task: string }[]; reply?: string; memoryActions?: unknown; botActions?: unknown }
 export function parsePlan(output: string, members: Member[], required: Member[] = []): Plan {
   const source = output.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
   let input: unknown
   try { input = JSON.parse(source) } catch { throw new Error('Bots King 没有返回有效的任务分派 JSON。') }
-  const plan = z.object({ tasks: z.array(z.object({ botId: z.string(), task: z.string().trim().min(1).max(6000) })).max(members.length), reply: z.string().max(12000).optional(), memoryActions: z.unknown().optional() }).parse(input)
+  const plan = z.object({ tasks: z.array(z.object({ botId: z.string(), task: z.string().trim().min(1).max(6000) })).max(members.length), reply: z.string().max(12000).optional(), memoryActions: z.unknown().optional(), botActions: z.unknown().optional() }).parse(input)
   const ids = plan.tasks.map(task => task.botId)
   if (new Set(ids).size !== ids.length || ids.some(id => !members.some(member => member.id === id))) throw new Error('Bots King 分派了重复或未加入群聊的成员。')
   if (required.length && (required.some(member => !ids.includes(member.id)) || ids.some(id => !required.some(member => member.id === id)))) throw new Error('任务分派必须严格覆盖用户点名的成员。')
@@ -101,7 +101,17 @@ export function redactDeletedBotIds(text: string, ids: readonly string[], replac
   return text.replace(new RegExp(pattern, 'g'), () => replacement)
 }
 
-export function freshCoordinator(existing: Member | undefined, revision: number, rowCount: number, uuid: () => string): Member {
-  if (existing && (existing.contextRevision ?? 0) === revision) return { ...existing, name: coordinatorName, duty: coordinatorDuty }
-  return { id: coordinatorId, name: coordinatorName, duty: coordinatorDuty, sessionId: uuid(), contextRevision: revision, historyStart: rowCount }
+export function freshCoordinator(existing: Member | undefined, revision: number, rowCount: number, uuid: () => string, workspace?: string): Member {
+  if (existing && existing.contextWorkspace === workspace && (existing.contextRevision ?? 0) === revision) return { ...existing, name: coordinatorName, duty: coordinatorDuty }
+  return { id: coordinatorId, name: coordinatorName, duty: coordinatorDuty, sessionId: uuid(), contextRevision: revision, contextWorkspace: workspace, historyStart: rowCount }
+}
+
+export function createRequestedBots(library: Library, raw: unknown, user: string, uuid: () => string) {
+  const actions = z.array(z.object({ name: definition.shape.name, duty: definition.shape.duty, evidence: z.string().trim().min(3).max(2000) })).min(1).max(6).parse(raw)
+  if (!/(创建|新建|新增|增加|create|add)/iu.test(user) || !/(bot|agent|智能体|成员|助手)/iu.test(user)) throw new Error('只有用户明确要求创建 Bot 时才会新增成员。')
+  const created = actions.map(action => {
+    if (!user.normalize('NFKC').includes(action.evidence.normalize('NFKC'))) throw new Error('创建 Bot 缺少本轮用户原文依据。')
+    return { id: `bot-${uuid()}`, name: action.name, duty: action.duty, archived: false }
+  })
+  return { library: validateLibrary({ ...library, bots:[...library.bots,...created] }), created }
 }

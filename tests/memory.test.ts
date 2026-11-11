@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Config } from '../src/config.ts'
 import { resolveTargets, parsePlan, selectMembers, defaultLibrary } from '../src/bots.ts'
-import { applyMemoryActions, defaultMemory, memoryContext, validateMemory, MAX_MEMORIES } from '../src/memory.ts'
+import { applyMemoryActions, defaultMemory, memoryContext, validateMemory } from '../src/memory.ts'
 
 const now = '2026-11-12T02:00:00.000Z'
 const user = '请记住：我的演示项目代号是 KING-913。'
@@ -61,13 +61,13 @@ test('disable and read-only mode suppress automatic writes; disable also suppres
   assert.match(memoryContext(readOnly), /KING-913/)
   assert.equal(applyMemoryActions(readOnly, actions, user, 'group-b', () => 'id', now).changed, 0)
 })
-test('memory storage enforces unique IDs, content bounds and active capacity without silent eviction', () => {
+test('memory storage enforces identity and content bounds without a fixed memory-count limit', () => {
   const state = save().state
   assert.throws(() => validateMemory({ ...state, entries: [state.entries[0], state.entries[0]] }))
   assert.throws(() => validateMemory({ ...state, entries: [{ ...state.entries[0], text: 'x'.repeat(601) }] }))
-  const full = { ...state, entries: Array.from({ length: MAX_MEMORIES }, (_, i) => ({ ...state.entries[0], id: `id-${i}`, text: `事实-${i}` })) }
-  assert.throws(() => applyMemoryActions(full, actions, user, 'group-b', () => 'new-id', now))
-  assert.equal(full.entries.length, MAX_MEMORIES)
+  const full = { ...state, entries: Array.from({ length: 200 }, (_, i) => ({ ...state.entries[0], id: `id-${i}`, text: `事实-${i}` })) }
+  assert.equal(applyMemoryActions(full, actions, user, 'group-b', () => 'new-id', now).state.entries.length, 201)
+  assert.equal(full.entries.length, 200)
 })
 test('Bots King handles its spaced name and the legacy alias without matching a child', () => {
   const members = selectMembers(['architect'], fixtureLibrary, [], () => 'session')
