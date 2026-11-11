@@ -1,8 +1,8 @@
 import { watchActivation } from './lifecycle.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { coordinatorId, coordinatorName, coordinatorDuty, validateLibrary, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
+import { coordinatorId, coordinatorName, coordinatorDuty, validateLibrary, deleteBot, availableMembers, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
-import { MAX_MEMORIES, validateMemory, type KingMemory, type MemoryEntry } from './memory.ts'
+import { MAX_MEMORIES, validateMemory, forgetBotIds, type KingMemory, type MemoryEntry } from './memory.ts'
 import { insertMention, type CurrentInput, type InsertionActions } from './mention.ts'
 
 export const inject = ['slots', 'sessions', 'conversation', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager']
@@ -16,6 +16,8 @@ function BotsIcon({ size }: { size: number }) {
 
 interface CatalogSnapshot { library: Library; kingMemory: KingMemory; revision: number; writable: boolean }
 interface CatalogAPI {
+  subscribe(refresh: () => void): () => void
+  remove(id: string, snapshot: CatalogSnapshot): Promise<CatalogSnapshot>
   models(): Promise<ModelGroup[]>
   load(): Promise<CatalogSnapshot>
   save(library: Library, revision: number): Promise<CatalogSnapshot>
@@ -100,6 +102,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
   const [snapshot, setSnapshot] = useState<CatalogSnapshot>()
   const [edit, setEdit] = useState<Bot>()
   const [limit, setLimit] = useState('4')
+  const [pendingDelete, setPendingDelete] = useState<Bot>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
@@ -112,6 +115,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
       setSnapshot(next)
       setModels(await catalog.models())
       setLimit(String(next.library.maxMembers))
+      setPendingDelete(undefined)
       setEdit(undefined)
     } catch (error) { setError(messageOf(error)) }
     finally { setBusy(false) }
@@ -126,9 +130,20 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
       const next = await catalog.save(validateLibrary(library), snapshot.revision)
       setSnapshot(next)
       setLimit(String(next.library.maxMembers))
+      setPendingDelete(undefined)
       setEdit(undefined)
       setStatus(message)
     } catch (error) { setError(`${messageOf(error)}。若配置已在其他窗口更改，请刷新后再编辑。`) }
+    finally { setBusy(false) }
+  }
+  async function confirmDelete() {
+    if (!snapshot || !pendingDelete) return
+    setBusy(true); setError(''); setStatus('')
+    try {
+      const next = await catalog.remove(pendingDelete.id, snapshot)
+      setSnapshot(next); setPendingDelete(undefined)
+      setStatus('Bot 已删除，旧编号已停用。重建同名 Bot 将使用新编号；请新建群聊选择新成员。')
+    } catch (error) { setError(`${messageOf(error)}。请刷新后重试。`) }
     finally { setBusy(false) }
   }
   async function saveMemory(memory: KingMemory, message: string): Promise<boolean> {
@@ -186,6 +201,14 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
         </div>
       </form>}
       <label className="dsh-bots-archive-filter"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} />显示已停用 Bot</label>
+      {pendingDelete && <section className="dsh-bots-editor" role="alertdialog" aria-label={`删除 ${pendingDelete.name}`}>
+        <h2>删除「{pendingDelete.name}」？</h2>
+        <p>删除后不能恢复此定义，旧编号永久停用。正在进行的群聊轮次会中止；主 Bot 下次回复会重新建立调度上下文。历史消息保留，但删除前的对话不再注入新的调度上下文。长期记忆中的旧编号也会清理。</p>
+        <div className="dsh-bots-actions">
+          <button type="button" disabled={busy} onClick={() => setPendingDelete(undefined)}>取消删除</button>
+          <button type="button" disabled={busy || !snapshot.writable} onClick={() => void confirmDelete()}>确认删除</button>
+        </div>
+      </section>}
       <div className="dsh-bots-cards">
         {snapshot.library.bots.filter(bot => showArchived || !bot.archived).map(bot => <article key={bot.id}>
           <div className="dsh-bots-name"><span className="dsh-bots-avatar" data-bot={bot.id}>{bot.name[0]}</span><h2>{bot.name}{bot.archived ? '（已停用）' : ''}</h2></div>
@@ -195,10 +218,11 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
             <button type="button" aria-label={`编辑 ${bot.name}`} disabled={busy || !!edit || !snapshot.writable} onClick={() => { setEdit({ ...bot }); setError(''); setStatus('') }}>编辑</button>
             <button type="button" aria-label={`${bot.archived ? '恢复' : '停用'} ${bot.name}`} disabled={busy || !!edit || !snapshot.writable}
               onClick={() => void save({ ...snapshot.library, bots: snapshot.library.bots.map(item => item.id === bot.id ? { ...item, archived: !item.archived } : item) }, bot.archived ? 'Bot 已恢复。' : 'Bot 已停用，可勾选“显示已停用 Bot”恢复。已有群聊保持不变。')}>{bot.archived ? '恢复' : '停用'}</button>
+            <button type="button" aria-label={`删除 ${bot.name}`} disabled={busy || !!edit || !snapshot.writable} onClick={() => { setPendingDelete(bot); setError(''); setStatus('') }}>删除</button>
           </div>
         </article>)}
       </div>
-      {!snapshot.library.bots.some(bot => !bot.archived) && <p>还没有可选的 Bot，请先创建或恢复一个。</p>}
+      {!snapshot.library.bots.some(bot => !bot.archived) && <p>{snapshot.library.bots.length ? '当前子 Bot 均已停用，可勾选“显示已停用 Bot”恢复。' : '尚未创建子 Bot。点击“新建 Bot”定义名称和职责，再创建群聊。'}</p>}
       <p className="dsh-bots-hint">编辑或停用不会改写已有群聊中的成员职责与历史回复。</p>
     </>}
   </section>
@@ -254,12 +278,27 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
   </div>
 }
 
-function GroupTimeline({ useProjection, inputActions, mention }: {
+function GroupTimeline({ useProjection, inputActions, mention, catalog }: {
+  catalog: CatalogAPI
   useProjection: ProjectionHook
   inputActions: InsertionActions
   mention: (name: string, actions: InsertionActions) => void
 }) {
   const group = useProjection('dshBots')
+  const [library, setLibrary] = useState<Library>()
+  useEffect(() => {
+    let disposed = false, generation = 0
+    const refresh = async () => {
+      const version = ++generation
+      try {
+        const snapshot = await catalog.load()
+        if (!disposed && version === generation) setLibrary(snapshot.library)
+      } catch { /* Host dispatch still rejects deleted members if configuration is unavailable. */ }
+    }
+    const stop = catalog.subscribe(() => { void refresh() })
+    void refresh()
+    return () => { disposed = true; stop() }
+  }, [catalog])
   const room = useRef<HTMLElement>(null)
   useLayoutEffect(() => {
     if (!group || !room.current) return
@@ -310,7 +349,7 @@ function GroupTimeline({ useProjection, inputActions, mention }: {
   return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
     <div className="dsh-bots-members">
       <strong>群聊</strong>
-      {[...(group.coordinator ? [{ ...group.coordinator, name: coordinatorName, duty: coordinatorDuty }] : []), ...group.members].map(member => <button key={member.id} type="button"
+      {[...(group.coordinator ? [{ ...group.coordinator, name: coordinatorName, duty: coordinatorDuty }] : []), ...(library ? availableMembers(group, library) : [])].map(member => <button key={member.id} type="button"
         title={member.duty} onPointerDown={event => event.preventDefault()} onClick={() => {
           mention(member.name, inputActions)
         }}>
@@ -395,6 +434,17 @@ export function apply(ctx: ClientContext) {
 
 function mountClient(ctx: ClientContext) {
   const catalog: CatalogAPI = {
+    subscribe: refresh => ctx.remote.$on('settings/document-updated', refresh),
+    async remove(id, snapshot) {
+      const library = deleteBot(snapshot.library, id)
+      const kingMemory = forgetBotIds(snapshot.kingMemory, [id])
+      const result = await ctx.remote.settings.mutate('dsh-bots', [
+        { op: 'set', path: ['library'], value: library },
+        { op: 'set', path: ['kingMemory'], value: kingMemory },
+      ], snapshot.revision)
+      if (!result.ok) throw new Error(result.error.message)
+      return { library: validateLibrary(result.value.value.library), kingMemory: validateMemory(result.value.value.kingMemory), revision: result.value.revision, writable: true }
+    },
     async models() {
       const result = await ctx.remote.session.modelCatalog()
       if (!result.ok) throw new Error(result.error.message)
@@ -446,6 +496,7 @@ function mountClient(ctx: ClientContext) {
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
     name: 'conversation.input.dock', id: 'dsh-bots-timeline', order: 90,
     inject: (sessionId: string) => ({
+      catalog,
       mention(name: string, actions: InsertionActions) {
         const binding = ctx.sessions.binding(sessionId)
         if (binding) insertMention(name, actions, ctx.conversation.input.for(binding.ctx))

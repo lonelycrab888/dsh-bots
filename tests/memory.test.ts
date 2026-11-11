@@ -1,3 +1,4 @@
+import { fixtureLibrary } from './fixtures.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Config } from '../src/config.ts'
@@ -11,8 +12,8 @@ const actions = [{ action: 'remember', text: fact, evidence: '我的演示项目
 const save = () => applyMemoryActions(defaultMemory, actions, user, 'group-a', () => 'memory-1', now)
 
 test('old configs gain empty King memory without losing the existing Bot library', () => {
-  const old = Config({ library: defaultLibrary })
-  assert.deepEqual(old.library.get(), defaultLibrary)
+  const old = Config({ library: fixtureLibrary })
+  assert.deepEqual(old.library.get(), fixtureLibrary)
   assert.deepEqual(old.kingMemory.get(), defaultMemory)
 })
 test('memory survives a serialized config roundtrip and is available independently of its source group', () => {
@@ -69,7 +70,7 @@ test('memory storage enforces unique IDs, content bounds and active capacity wit
   assert.equal(full.entries.length, MAX_MEMORIES)
 })
 test('Bots King handles its spaced name and the legacy alias without matching a child', () => {
-  const members = selectMembers(['architect'], defaultLibrary, [], () => 'session')
+  const members = selectMembers(['architect'], fixtureLibrary, [], () => 'session')
   for (const input of ['@Bots King 你好', '@bots king，请记住', '@主Bot 请记住']) assert.deepEqual(resolveTargets(input, members), [])
   assert.deepEqual(resolveTargets('@Bots King @架构师 请设计', members), members)
   assert.deepEqual(parsePlan(JSON.stringify({ tasks: [], reply: '等待保存', memoryActions: actions }), members).memoryActions, actions)

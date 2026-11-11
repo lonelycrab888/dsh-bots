@@ -76,8 +76,14 @@ try {
     await page.getByRole('button', { name: 'Bots', exact: true }).waitFor()
     if (await preview.isVisible()) await preview.click()
     await page.getByRole('button', { name: 'Bots', exact: true }).click()
-    await page.getByRole('heading', { name: '架构师' }).waitFor()
-    await page.getByRole('heading', { name: '审阅员' }).waitFor()
+    await page.getByText('尚未创建子 Bot。点击“新建 Bot”定义名称和职责，再创建群聊。', { exact: true }).waitFor()
+    for (const [name, duty] of [['架构师', '提出技术方案'], ['审阅员', '审阅方案并提出验收建议']]) {
+      await page.getByRole('button', { name: '新建 Bot', exact: true }).click()
+      await page.getByRole('textbox', { name: 'Bot 名称', exact: true }).fill(name)
+      await page.getByRole('textbox', { name: 'Bot 职责', exact: true }).fill(duty)
+      await page.getByRole('button', { name: '保存 Bot', exact: true }).click()
+      await page.getByRole('heading', { name, exact: true }).waitFor()
+    }
     await page.getByRole('button', { name: /^(新建会话|New session)$/i }).last().click()
     await page.getByRole('button', { name: '群聊', exact: true }).click()
     await page.getByRole('checkbox', { name: /架构师/ }).check()

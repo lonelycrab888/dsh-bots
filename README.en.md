@@ -12,7 +12,7 @@
 
 <!-- Screenshot placeholder 1: Group chat overview showing the named replies, bottom member bar, and native message box. Suggested path: assets/group-chat.png. -->
 
-1. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities. **Bots King**, the coordinator, is shown by default and joins every group automatically.
+1. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities. A fresh installation shows only **Bots King**, the coordinator, with no preset child Bots. You create all child Bots yourself; Bots King joins every group automatically.
 2. **Start a group chat.** Create a conversation and choose a workspace. Select **群聊** (Group chat) near the message box, choose members, and click **确认成员** (Confirm members). Select **默认** (Default) to use Harness's native conversation behavior.
 3. **Send a task.** Describe your goal in the native message box and let Bots King assign the work. Use `@name` to restrict which child Bots participate in the current turn.
 4. **Read the results.** The timeline shows assignments, named member replies, and the coordinator's summary in order. Click a member below the timeline to insert a mention. The member bar scrolls horizontally when needed.
@@ -25,7 +25,7 @@
 | Ask the coordinator directly | “@Bots King Summarize the conclusions so far without assigning new tasks.” |
 | Save a personal preference | “@Bots King Remember that I prefer conclusions first, followed by implementation steps.” |
 
-Create and add the example members to the group before mentioning them. With no mentions, or only `@Bots King`, the coordinator decides whether and whom to delegate to. Mentioning child Bots limits this turn's delegated tasks to those members.
+Architect and Reviewer are examples, not preinstalled Bots. Create and add the example members to the group before mentioning them. With no mentions, or only `@Bots King`, the coordinator decides whether and whom to delegate to. Mentioning child Bots limits this turn's delegated tasks to those members.
 
 The group chat fills the available height. The timeline and member bar follow the message box's width, with scrolling inside the timeline. The native **Team, Trajectory, and Context** views remain available.
 
@@ -89,10 +89,22 @@ Each child Bot has a name and responsibilities. Long descriptions scroll within 
 | **Model** | Follows the current conversation by default. You can assign a host-configured model to Bots King or any child Bot |
 | **Reasoning effort** | After choosing a model, select one of its native effort levels or use the model default. Following the current conversation also inherits its reasoning effort |
 | **Disable and restore** | Disabled Bots are excluded from new group selections. Enable “Show disabled Bots” to restore them |
+| **Delete** | After confirmation, removes the definition and permanently retires its ID. Recreating the same name generates a new ID |
 
 Model and reasoning options come from the host's standard API configuration. After changing that configuration, click **刷新配置** (Refresh configuration) to reload the choices. If a model exposes no effort choices, the effort selector is disabled with an explanation. Switching models clears the previously selected effort to avoid an incompatible value.
 
 **Names, responsibilities, and member limits apply to new groups. Model and effort settings are read on the next Bot execution and also apply to existing groups.** Existing groups retain a snapshot of their members' responsibilities; editing or disabling a definition does not rewrite historical members or replies. The library holds up to 100 Bots, including disabled ones.
+
+### Deleting and recreating Bots
+
+Click **删除** (Delete) on a child Bot card, review the notice, then choose **确认删除** (Confirm deletion). Bots King cannot be deleted.
+
+- Deletion revokes the Bot's dispatch eligibility across all groups and cancels group turns currently running. Existing groups retain historical replies, but no longer offer that Bot in the member bar.
+- On its next execution, Bots King starts a fresh coordination session without injecting group context from before deletion. Retired IDs in personal memory are replaced with “∅” (deleted ID); unrelated preferences remain intact.
+- Recreating the same name generates a new identity. Create a new group and select the new Bot; it does not inherit the deleted Bot's session or identity.
+- Internal retirement records keep old IDs unavailable for reuse. These records are not supplied as the coordinator's memory. Historical logs remain, so “forgetting” means removing IDs from model context and dispatch, not erasing every historical record from disk.
+
+Upgrading does not clear existing Bot definitions or personal memories. If old members reappear after reinstalling into a previously used profile, delete them from the library. A fresh profile starts with no child Bots and no preloaded long-term memories.
 
 ## How Bots King assigns tasks
 
@@ -152,4 +164,4 @@ Disabling or uninstalling removes the Bots entry, group chat overlay, styles, an
 
 `npm run typecheck` checks types. `npm test` covers configuration validation, member selection, mention routing, task plans, memory, model and effort persistence, and activation cleanup. `npm run build` generates release files.
 
-`scripts/smoke.mjs` provides isolated Web tests with a model stub and requires Chrome and the Playwright CLI. This version passed 21 automated tests, plus desktop checks for cards, effort persistence, the native Team view, and disable/uninstall behavior. Alignment after dragging the message-box width still needs manual verification; a reliable desktop automation result has not yet been obtained.
+`scripts/smoke.mjs` provides isolated Web tests with a model stub and requires Chrome and the Playwright CLI. The current source passed 27 automated tests, including fresh-profile defaults, retired IDs, same-name recreation, coordinator context rotation, and memory ID cleanup. Earlier desktop checks covered cards, effort persistence, the native Team view, and disable/uninstall behavior. The new deletion interface has not yet been retested in the desktop app. Alignment after dragging the message-box width still needs manual verification; a reliable desktop automation result has not yet been obtained.

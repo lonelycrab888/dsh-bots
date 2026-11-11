@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { redactDeletedBotIds } from './bots.ts'
 
 export const MAX_MEMORIES = 32
 export const memoryEntrySchema = z.object({
@@ -77,3 +78,11 @@ export const memoryInstructions = `可选字段 memoryActions 用于更新你的
 新增：{"action":"remember","text":"简洁事实或偏好","evidence":"本轮用户消息中的原文片段"}；更正已有条目时增加 "id":"已有记忆ID"；用户明确要求忘记时用 {"action":"forget","id":"已有记忆ID","evidence":"用户要求忘记的原文"}。
 只记用户明确要求长期记住的信息、用户稳定的个人偏好或长期项目背景。不要保存密码、密钥、临时任务、示例、引用材料中的陈述、子Bot的推测或历史对话中已移出的信息。evidence必须逐字来自本轮用户消息，不能从群聊历史抄取。不得因用户询问记忆而新增记忆。没有新信息时省略memoryActions。
 用户明确要求记住或忘记时必须返回相应动作；在收到宿主保存结果前不要声称已成功保存。仅处理记忆或回答个人记忆问题时可直接返回tasks空数组和reply，不必委派子Bot。`
+
+/** Remove retired identifiers while preserving unrelated personal preferences. */
+export function forgetBotIds(memory: KingMemory, ids: readonly string[]): KingMemory {
+  return validateMemory({ ...memory, entries: memory.entries.map(entry => ({
+    ...entry, text: redactDeletedBotIds(entry.text, ids, '∅'),
+    ...(entry.evidence ? { evidence: redactDeletedBotIds(entry.evidence, ids, '∅') } : {}),
+  })) })
+}

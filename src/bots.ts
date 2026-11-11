@@ -1,13 +1,10 @@
 import { z } from 'zod'
 
-export const bots = [
-  { id: 'architect', name: '架构师', duty: '提出技术方案，说明模块职责、关键取舍和可验证的实施步骤。', archived: false },
-  { id: 'reviewer', name: '审阅员', duty: '审阅方案或现有回复，指出遗漏、边界条件和验证方法。', archived: false },
-]
 export const coordinatorId = 'coordinator'
 export const coordinatorName = 'Bots King'
 export const coordinatorDuty = '理解用户目标，按成员职责派发任务，汇总结果，并维护跨群聊的个人长期记忆。'
-export const defaultLibrary = { maxMembers: 4, bots }
+// New profiles start without child Bots. Existing libraries remain user-owned.
+export const defaultLibrary: Library = { maxMembers: 4, bots: [], deletedBotIds: [] }
 export const normalizeName = (name: string) => name.normalize('NFKC').toLocaleLowerCase()
 export const botModelSchema = z.object({ provider: z.string().min(1), model: z.string().min(1), reasoningEffort: z.string().trim().min(1).max(120).optional() })
 export type BotModel = z.infer<typeof botModelSchema>
@@ -24,14 +21,16 @@ const definition = z.object({
 })
 export const librarySchema = z.object({
   kingModel: botModelSchema.optional(),
-  maxMembers: z.number().int().min(1).max(12),
-  bots: z.array(definition).max(100),
+  maxMembers: z.number().int().min(1).max(12).default(4),
+  deletedBotIds: z.array(z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/)).default([]),
+  bots: z.array(definition).max(100).default([]),
 }).superRefine((value, ctx) => {
   const names = new Set([normalizeName(coordinatorName), normalizeName('主Bot')])
-  const ids = new Set([coordinatorId])
+  const ids = new Set([coordinatorId, ...value.deletedBotIds])
+  if (value.deletedBotIds.includes(coordinatorId) || new Set(value.deletedBotIds).size !== value.deletedBotIds.length) ctx.addIssue({ code: 'custom', message: '已删除 Bot 标识必须唯一，不能包含主 Bot。' })
   for (const bot of value.bots) {
     const name = normalizeName(bot.name)
-    if (names.has(name) || ids.has(bot.id)) ctx.addIssue({ code: 'custom', message: 'Bot 名称和标识必须唯一，且不能使用 Bots King 的名称。' })
+    if (names.has(name) || ids.has(bot.id)) ctx.addIssue({ code: 'custom', message: 'Bot 名称和标识必须唯一，不能使用 Bots King 的名称或已删除的编号。' })
     names.add(name)
     ids.add(bot.id)
   }
@@ -44,7 +43,7 @@ export function validateLibrary(value: unknown): Library {
   if (!parsed.success) throw new Error(parsed.error.issues.map(issue => issue.message).join('；'))
   return parsed.data
 }
-export interface Member { id: BotId; name: string; duty: string; sessionId: string }
+export interface Member { id: BotId; name: string; duty: string; sessionId: string; contextRevision?: number; historyStart?: number }
 export type Row =
   | { id: string; author: 'user' | 'notice'; text: string }
   | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' }
@@ -84,4 +83,25 @@ export function parsePlan(output: string, members: Member[], required: Member[] 
   if (required.length && (required.some(member => !ids.includes(member.id)) || ids.some(id => !required.some(member => member.id === id)))) throw new Error('任务分派必须严格覆盖用户点名的成员。')
   if (!ids.length && !plan.reply?.trim()) throw new Error('Bots King 未提供任务或直接答复。')
   return plan
+}
+
+/** IDs are retired permanently; a recreated name must receive a fresh identity. */
+export function deleteBot(library: Library, id: string): Library {
+  if (id === coordinatorId || !library.bots.some(bot => bot.id === id)) throw new Error('该子 Bot 已不存在，请刷新配置。')
+  return validateLibrary({ ...library, bots: library.bots.filter(bot => bot.id !== id), deletedBotIds: [...library.deletedBotIds, id] })
+}
+
+export function availableMembers(group: Group, library: Pick<Library, 'bots' | 'deletedBotIds'>): Member[] {
+  return group.members.filter(member => library.bots.some(bot => bot.id === member.id) && !library.deletedBotIds.includes(member.id))
+}
+
+export function redactDeletedBotIds(text: string, ids: readonly string[], replacement = '[已删除 Bot]'): string {
+  if (!ids.length) return text
+  const pattern = [...ids].sort((a, b) => b.length - a.length).map(id => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  return text.replace(new RegExp(pattern, 'g'), () => replacement)
+}
+
+export function freshCoordinator(existing: Member | undefined, revision: number, rowCount: number, uuid: () => string): Member {
+  if (existing && (existing.contextRevision ?? 0) === revision) return { ...existing, name: coordinatorName, duty: coordinatorDuty }
+  return { id: coordinatorId, name: coordinatorName, duty: coordinatorDuty, sessionId: uuid(), contextRevision: revision, historyStart: rowCount }
 }

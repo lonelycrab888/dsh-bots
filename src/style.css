@@ -59,8 +59,6 @@
   background: #e2e8f0;
   color: #334155;
 }
-.dsh-bots-avatar[data-bot="architect"] { background: #deebff; color: #2250a4; }
-.dsh-bots-avatar[data-bot="reviewer"] { background: #e3f2df; color: #27613b; }
 .dsh-bots-hint { margin: 8px 0 0; color: var(--bots-muted); }
 .dsh-bots-timeline {
   margin-top: 8px;

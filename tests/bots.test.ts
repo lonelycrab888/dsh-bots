@@ -1,3 +1,4 @@
+import { fixtureLibrary } from './fixtures.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Config } from '../src/config.ts'
@@ -5,7 +6,7 @@ import { defaultLibrary, parsePlan, resolveTargets, selectMembers, validateLibra
 import { projection } from '../src/projection.ts'
 
 test('catalog validates identity, duties, reserved names, normalized duplicates and integer limits', () => {
-  const valid = validateLibrary(defaultLibrary)
+  const valid = validateLibrary(fixtureLibrary)
   assert.equal(valid.maxMembers, 4)
   for (const maxMembers of [0, 13, 1.5, NaN]) assert.throws(() => validateLibrary({ ...valid, maxMembers }))
   for (const name of ['', '主Bot', '主bot', 'a b', '@测试']) assert.throws(() => validateLibrary({ ...valid, bots: [{ ...valid.bots[0], name }] }))
@@ -16,13 +17,13 @@ test('catalog validates identity, duties, reserved names, normalized duplicates 
 test('volatile host config seeds defaults and rejects invalid writes before persistence', () => {
   const config = Config({})
   assert.deepEqual(config.library.get(), defaultLibrary)
-  const custom = { maxMembers: 2, bots: [...defaultLibrary.bots, { id: 'custom', name: '测试专家', duty: '验收', archived: false }] }
+  const custom = { ...defaultLibrary, maxMembers: 2, bots: [...defaultLibrary.bots, { id: 'custom', name: '测试专家', duty: '验收', archived: false }] }
   assert.deepEqual(Config({ library: custom }).library.get(), custom)
   assert.throws(() => Config({ library: { ...custom, maxMembers: 13 } }))
   assert.throws(() => Config({ library: { ...custom, bots: [...custom.bots, custom.bots[0]] } }))
 })
 test('member selection enforces current limit and archive state, snapshots mutable definitions', () => {
-  const library = structuredClone(defaultLibrary)
+  const library = structuredClone(fixtureLibrary)
   library.maxMembers = 1
   assert.throws(() => selectMembers(['architect', 'reviewer'], library, [], () => 'id'))
   library.bots[0].archived = true
@@ -32,7 +33,7 @@ test('member selection enforces current limit and archive state, snapshots mutab
   assert.equal(selected[0].name, '审阅员')
   assert.equal(selectMembers(['reviewer'], library, selected, () => 'new')[0].sessionId, 'saved')
 })
-const members = selectMembers(['architect', 'reviewer'], defaultLibrary, [], () => 'id')
+const members = selectMembers(['architect', 'reviewer'], fixtureLibrary, [], () => 'id')
 test('mention routing handles Chinese punctuation and rejects unknown members', () => {
   assert.deepEqual(resolveTargets('请设计一个方案', members), [])
   assert.deepEqual(resolveTargets('@主Bot 请派发', members), [])
@@ -76,8 +77,32 @@ test('mention insertion recovers empty composer and preserves nonempty drafts', 
   assert.equal(draft, '')
 })
 
-test('a custom display name takes precedence over a built-in ID alias', () => {
+test('a custom display name takes precedence over a member ID alias', () => {
   const custom = { id: 'custom-reviewer', name: 'reviewer', duty: '自定义职责', sessionId: 'custom' }
   assert.deepEqual(resolveTargets('@reviewer 检查', [...members, custom]), [custom])
   assert.deepEqual(resolveTargets('@审阅员 检查', [...members, custom]), [members[1]])
+})
+
+test('fresh, partial and explicitly empty profiles have no child Bots or preloaded memories', () => {
+  for (const input of [{}, { library: {} }, { library: { maxMembers: 8 } }, { library: { maxMembers: 4, bots: [] } }]) {
+    const config = Config(input)
+    assert.deepEqual(config.library.get().bots, [])
+    assert.deepEqual(config.kingMemory.get().entries, [])
+    assert.throws(() => selectMembers(['architect'], config.library.get(), [], () => 'id'))
+    assert.throws(() => selectMembers(['reviewer'], config.library.get(), [], () => 'id'))
+  }
+  const custom = { ...defaultLibrary, bots: [{ id: 'bot-user-123', name: '用户创建', duty: '整理资料', archived: false }] }
+  const restored = Config(JSON.parse(JSON.stringify({ library: custom })))
+  assert.deepEqual(restored.library.get(), custom)
+  assert.deepEqual(Config({ library: { ...custom, bots: [] } }).library.get().bots, [])
+})
+
+test('dispatch uses only current user-created member IDs and rejects remembered legacy IDs', () => {
+  const custom = { ...defaultLibrary, bots: [{ id: 'bot-user-456', name: '自选成员', duty: '检查方案', archived: false }] }
+  const current = selectMembers([custom.bots[0].id], custom, [], () => 'new-session')
+  const plan = { tasks: [{ botId: current[0].id, task: '检查边界条件' }] }
+  assert.deepEqual(parsePlan(JSON.stringify(plan), current), plan)
+  for (const id of ['architect', 'reviewer', 'bot-from-another-group']) {
+    assert.throws(() => parsePlan(JSON.stringify({ tasks: [{ botId: id, task: '旧编号任务' }] }), current))
+  }
 })

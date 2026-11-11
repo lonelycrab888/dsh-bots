@@ -5,7 +5,7 @@ import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-
 import type { Group, Member } from './bots.ts'
 
 const botId = z.string()
-const member = z.object({ id: botId, name: z.string(), duty: z.string(), sessionId: z.string() })
+const member = z.object({ id: botId, name: z.string(), duty: z.string(), sessionId: z.string(), contextRevision: z.number().int().nonnegative().optional(), historyStart: z.number().int().nonnegative().optional() })
 const row = z.union([
   z.object({ id: z.string(), author: z.enum(['user', 'notice']), text: z.string() }),
   z.object({
@@ -34,7 +34,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 2,
+  stateVersion: 3,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {

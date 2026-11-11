@@ -21,6 +21,7 @@ export const Config = Schema.object({
   }).default(defaultMemory), value => validateMemory(value)).default(defaultMemory).volatile(),
   library: Schema.transform(Schema.object({
     kingModel: modelSchema,
+    deletedBotIds: Schema.array(Schema.string()).default([]),
     maxMembers: Schema.number().step(1).min(1).max(12).default(4),
     bots: Schema.array(Schema.object({
       id: Schema.string().required(), name: Schema.string().required(),
