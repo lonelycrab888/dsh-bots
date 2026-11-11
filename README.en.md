@@ -38,7 +38,7 @@ Configure a working model in Harness's standard API settings first. The plugin u
 Open **Plugins → Add Plugin**, select the **official npm registry** as the installation source, and paste this Git URL into **Package name or address**:
 
 ```text
-git+https://github.com/lonelycrab888/dsh-bots.git#v0.1.0
+git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
 Enable **dsh-bots** in the Plugins panel after installation. If **Bots** does not appear in the sidebar, finish any running tasks, fully quit the desktop app, and reopen it.
@@ -48,7 +48,7 @@ The Git URL locates the plugin; the npm registry supplies its dependencies. If G
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#v0.1.0'
+dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#main'
 dsh web
 ```
 

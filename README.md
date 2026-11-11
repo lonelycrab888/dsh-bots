@@ -38,7 +38,7 @@
 打开 **插件 → 添加插件**，将 **安装源** 选为 **npm 官方源**，把下面的 Git 地址粘贴到 **包名或地址**：
 
 ```text
-git+https://github.com/lonelycrab888/dsh-bots.git#v0.1.0
+git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
 安装后在插件页启用 **dsh-bots**。若侧栏没有出现 **Bots**，请先结束正在运行的任务，再完整退出并重新打开桌面端。
@@ -48,7 +48,7 @@ Git 地址用于获取插件，npm 源用于下载依赖。如果安装日志显
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#v0.1.0'
+dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#main'
 dsh web
 ```
 
