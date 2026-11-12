@@ -19,6 +19,18 @@
       },
       "versions": [
         {
+          "version": "0.3.4",
+          "publishTimestamp": 1794479037,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "commit": "1215673c3767df095ecef7d227774a2733352e42"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1 || 0.2.2-rc.2"
+          }
+        },
+        {
           "version": "0.3.3",
           "publishTimestamp": 1794471903,
           "source": {
