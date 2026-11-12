@@ -18,6 +18,7 @@ const groupDelivery = z.object({
   requestId: z.string(),
   receiptId: z.string(),
   targetId: z.string(),
+  workspaceId: z.string().optional(), originConversationId: z.string().optional(),
   body: z.string().min(1),
 })
 export const groupDeliverySchema = z.discriminatedUnion('kind', [

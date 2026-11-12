@@ -117,10 +117,11 @@ function assertCompleteTimeline(calls, topic) {
       return subject === topic || subject.startsWith(topic + '，')
     })
   const checked = entry => {
-    const evidence = entry?.state.已有讨论.find(reply => reply.name === '审阅员' && reply.status === 'done')?.text
-    assert.equal(evidence?.slice(1796, 1801), '20:10')
-    assert.match(evidence, /20:10 交接确认 P036-TIMELINE-END$/u)
-    assert.ok(entry.payload.群聊历史.some(row => row.text === evidence))
+    assert.ok(entry?.state.已有讨论.some(reply => reply.name === '审阅员' && reply.status === 'done'))
+    const source = [...entry.payload.群工作记忆?.recent ?? [], ...entry.payload.群工作记忆?.recalled ?? []]
+      .find(row => /20:10 交接确认 P036-TIMELINE-END$/u.test(row.text))
+    assert.ok(source?.id, 'Long replies retain exact originals and message IDs in working context')
+    assert.equal(source.text.slice(1796, 1801), '20:10')
   }
   checked(rounds.find(({ call, state }) => call.moderator && state.已有讨论.length))
   checked(rounds.find(({ call, state }) => call.discussion && state.已有讨论.length))
@@ -400,11 +401,11 @@ try {
     .replace('process.env.DSH_BOTS_SMOKE_LEGACY', String(legacyRouting)).replace('process.env.DSH_BOTS_SMOKE_OLD_ROUTING', String(oldRoutesThroughKing))
     .replace('process.env.DSH_BOTS_SMOKE_OLD_MENTIONS', String(oldMentions)))
 
-  const beforeRestart = await requests()
+  const beforeRestart = (await requests()).filter(item => !item.intentCheck)
   const normalRoles = oldRoutesThroughKing ? ['KingBot', '架构师', 'KingBot', 'KingBot', '审阅员', 'KingBot'] : ['架构师', '审阅员']
   const discussionRoles = upgradeFrom ? [] : ['KingBot', '审阅员', 'KingBot', '架构师', 'KingBot', '审阅员', 'KingBot', 'KingBot']
   assert.deepEqual(beforeRestart.map(item => item.role), [...normalRoles, ...discussionRoles])
-  assert.ok(beforeRestart.filter(item => item.moderator).every(item => !item.tools.length))
+  assert.ok(beforeRestart.filter(item => item.moderator).every(item => item.tools.every(name => name === 'read_group_history')))
   assert.match(beforeRestart[oldRoutesThroughKing ? 4 : 1].input, legacyRouting ? /架构师 \| 看到了架构说明/u : oldRoutesThroughKing ? /架构师 \| 初步观点/u : /架构师 \| 直接回复/u)
   if (!upgradeFrom) assert.ok(beforeRestart.filter(item => item.addressed || item.discussion).every(item =>
     ['read', 'read_image', 'write', 'edit', 'glob', 'grep', 'web_search', 'web_fetch'].every(tool => item.tools.includes(tool))))
@@ -467,7 +468,7 @@ try {
   }).toString().replace('process.env.DSH_BOTS_SMOKE_UPGRADE', String(!!upgradeFrom)).replace('process.env.DSH_BOTS_SMOKE_LEGACY', String(legacyRouting))
     .replace('process.env.DSH_BOTS_SMOKE_OLD_ROUTING', String(oldRoutesThroughKing)))
 
-  const afterRestart = await requests()
+  const afterRestart = (await requests()).filter(item => !item.intentCheck)
   assert.deepEqual(afterRestart.map(item => item.role), [...normalRoles, ...discussionRoles, '审阅员', '默认'])
   assert.match(afterRestart.at(-2).input, previous ? /请点评上一条/u : /架构师 \| 回应 审阅员/u)
   assert.equal(afterRestart.at(-2).speaker, '审阅员')
@@ -696,14 +697,14 @@ try {
     assert.equal(retries.length, 2)
     assert.ok(retries.every(item => item.recoveryInstructions))
     assert.equal(moderatorState(recoveries.at(-1)).已有讨论[1].text, '架构师 | 回应 审阅员')
-    const independent = completed.filter(item => item.role !== '默认' && JSON.parse(item.input).最新用户消息.includes('周末怎么烤面包'))
+    const independent = completed.filter(item => item.role !== '默认' && !item.intentCheck && JSON.parse(item.input).最新用户消息.includes('周末怎么烤面包'))
     assert.equal(independent.length, 1)
     assert.equal(independent[0].role, '审阅员')
-    assert.ok(independent.every(item => !item.seesPreviousTask), 'New topics must not inherit old model messages')
+    assert.ok(independent.every(item => !String(JSON.parse(item.input).群聊议题 ?? '').includes('验收主持恢复')), 'New topics must not inherit old task constraints; historical sources remain retrievable')
     const redirected = completed.find(item => item.moderator && moderatorState(item).用户最近要求?.some(line => line.includes('验收插话后只核对核心证据')))
     assert.match(redirected.input, /验收实时插话原议题/)
     assert.match(redirected.input, /审阅员 \| 初步观点/)
-    const latestMessage = item => JSON.parse(item.input).最新用户消息
+    const latestMessage = item => { const text = JSON.parse(item.input).最新用户消息; return item.intentCheck ? JSON.parse(text).用户新消息 : text }
     const callsFor = needle => completed.filter(item => item.role !== '默认' && latestMessage(item).includes(needle))
     for (const subject of ['验收暂停原议题', '验收语义暂停原议题', '验收待确认原议题', '验收换任务原议题', '验收优先点名原议题', '验收实时插话原议题']) {
       const calls = callsFor(subject).filter(item => {
@@ -719,7 +720,7 @@ try {
     const replacement = callsFor('请核对预算边界').filter(item => item.addressed)
     assert.equal(replacement.length, 1)
     assert.equal(replacement[0].role, '审阅员')
-    assert.doesNotMatch(replacement[0].input, /验收换任务原议题/)
+    assert.doesNotMatch(String(JSON.parse(replacement[0].input).群聊议题 ?? ''), /验收换任务原议题/)
     assert.deepEqual(callsFor('只回答验收点名优先').map(item => item.role), ['审阅员'])
     assert.ok(callsFor('验收读取拖入文档').some(item => item.calledTool === 'read'))
     assert.ok(callsFor('验收读取本地引用').some(item => item.calledTool === 'read_uploaded_document'))
@@ -746,7 +747,7 @@ try {
     assert.equal(recovery.length, 1)
     const delegated = completed.filter(item => item.moderator && item.input.includes('完成离线清单方案'))
     assert.ok(delegated.length >= 3)
-    assert.ok(completed.filter(item => item.moderator || item.intentCheck).every(item => !item.tools.length))
+    assert.ok(completed.filter(item => item.moderator || item.intentCheck).every(item => item.tools.every(name => name === 'read_group_history')))
     if (process.env.DSH_BOTS_RECOVERY_SMOKE === '1') {
       await exerciseLongReplies()
       await exerciseTaskRecovery(defaultWorkspace)

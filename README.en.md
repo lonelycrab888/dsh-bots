@@ -6,72 +6,7 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.8`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
-
-## v0.3.8
-
-- Child Bots can post as themselves or send directed messages to members of the current group. The message body reaches the recipient's model input. The timeline shows the message ID and the host's queued, delivered, and acknowledged timestamps.
-- In KingBot's dedicated chat, say `再把『通知正文』发给刚才的群` to post a literal notice or `把预算改成 1000，补充给他们` to amend the linked topic. The group and topic link persists, and updated results come back to the same dedicated chat.
-- A new user message cancels the current discussion turn immediately. KingBot uses the latest input and saved context to decide whether to continue, answer a progress question, pause, switch topics, or let a single mentioned Bot reply. Bot names display with `@` in the timeline.
-- Member replies show generation, file reading, and tool stages. The group distinguishes a model timeout, a member deadline, KingBot’s wait expiry, and approval denial. A member can leave a concrete question in the group and resume the same topic after the user answers.
-
-## v0.3.7
-
-- Host owners can ask KingBot to find an existing group, check its progress, post a literal notice, or delegate a discussion. Duplicate titles require a workspace choice. Delegated work waits for the current topic and reports back to the original chat.
-- User messages in group chats show the current Harness account photo in its original colors. The “你” avatar appears when signed out or when a photo is unavailable.
-
-## v0.3.6
-
-- Group messages, Markdown, and topic summaries follow the Harness conversation font size immediately. Bot and user bubbles appear on opposite sides, and the topic summary aligns with the composer.
-- The native `@` menu lists **群聊成员** (Group members) first. Filter by name and select with the keyboard or mouse. Files and folders are still available in the same menu.
-- The moderator, subsequent speakers, and the final summary receive complete saved replies, including after a pause or restart.
-
-## v0.3.5
-
-- Group chats save discussion progress. After a pause or restart, resume the discussion, summarize completed replies, or end the task. The progress panel lists operations that need verification. Tasks started in KingBot's dedicated chat return their results there with a link to the group.
-- Open **查看议题摘要** (View topic summary) to review the goal, constraints, confirmed decisions, messages, and attachments. Ask to resume a named topic to find its context.
-- **Bots 定义** (Bot directory) shows avatars and names. Click a Bot to open its settings. KingBot has a row of its own, and each row of child Bots is centered. Avatars have transparent backgrounds and appear black in light mode and white in dark mode. The disabled-Bot filter and reset action sit below the directory. The library supports up to 20 child Bots, including disabled Bots. Existing libraries over the limit remain editable. Each group has a separate member limit.
-
-## Fixes in v0.3.4
-
-- In the dedicated chat, KingBot creates or reuses child Bots and revises group proposals in natural language. A short confirmation shows the workspace and members, with task details available on demand. The confirmation button and a written reply apply to the same proposal.
-- You can stop, redirect, or mention one Bot while KingBot or a member is working. KingBot pauses dispatch and asks when it detects a possible interruption but cannot determine the intent.
-- A failed moderation request is retried. KingBot can continue with an eligible speaker and mark missing contributions or evidence in the summary.
-- Group chats import each attachment independently, so usable documents remain available. Bots explain unavailable tools, sandbox denials, and operations that require interactive approval.
-
-## Fixes in v0.3.3
-
-- KingBot prioritizes requests to pause or change direction. It keeps completed replies and asks what to do next, or starts the replacement task the user supplied.
-- Mentioning one child Bot gives that Bot the turn. A single mention during a discussion can interrupt the active turn. Each Bot uses its configured identity and role, with chat context scoped to the group.
-- KingBot and child Bots inherit the conversation's Harness tool preset and working directory when executing tasks, including file tools, available web tools, and skills.
-- A document dropped into the desktop composer becomes a readable attachment even when the composer inserts only its absolute path.
-
-## Fixes in v0.3.2
-
-- If KingBot tries to close a discussion early, it retries with the current list of eligible speakers. If the retry is unusable, an eligible Bot contributes and KingBot moderates the next exchange.
-- Harness's steer action interrupts the active group reply and carries completed contributions into the next discussion.
-- New tasks in the same group start with their own context. Explicit follow-ups retain the relevant discussion.
-- Bots can read uploaded text files, Word (.docx), and PDFs with a text layer. The timeline renders Markdown headings, lists, tables, and code blocks.
-
-## New in v0.3.1
-
-- **KingBot moderates group chats by default.** It listens to each contribution before choosing the next speaker, asking a follow-up question, or closing the discussion.
-- **Create groups from the dedicated conversation.** KingBot proposes members, suggests new Bots when needed, and waits for confirmation of the destination workspace. For a task, it leads the group and returns the conclusion to the original conversation.
-- **More natural Bot creation.** KingBot accepts conversational batch requests, normalizes separators in names, and skips existing members on retry.
-- **Compatibility with rc.1 and rc.2.** Existing conversations retain their identities, members, and context. An rc.1-specific `v0.2.2` release is also available.
-
-## New in v0.2.1
-
-- **Selective reset**: Independently reset Bot members, King memory, and old conversation associations, with typed `RESET` confirmation.
-- **A fresh execution context**: Retire old IDs and stop injecting pre-reset history. Interrupted resets can resume.
-- **Workspace recovery**: Keep the Bots page available when its directory was deleted, and avoid restoring sessions tied to the old location of a moved folder.
-
-## New in v0.2.0
-
-- **A dedicated King conversation**: Choose a workspace and talk directly to KingBot using the native composer.
-- **King-created members**: Ask KingBot to name child Bots, describe their capabilities, and save them to the library.
-- **Memory across workspaces**: Group chats in other workspaces share memory with the dedicated King conversation, without a fixed entry-count or group-count limit.
-- **Workspace cleanup and recovery**: Disabling or uninstalling hides the Bots workspace. Re-enabling or reinstalling restores it while preserving memory and history.
+**DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
 
 ## How to use it
 
@@ -97,7 +32,7 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.8.tgz`. [v0.3.8 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.8)
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.9.tgz`. [v0.3.9 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.9)
 
 To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
@@ -109,7 +44,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs directly from the main branch. Its v0.3.8 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
+`#main` installs directly from the main branch. The package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 
@@ -146,7 +81,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.8.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.9.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
@@ -172,7 +107,7 @@ The first setup imports legacy saved memories once. Switching the King workspace
 
 <!-- Screenshot placeholder 2: The Bots page showing KingBot, child Bot cards, the member limit, model selectors, and reasoning effort selectors. Suggested path: assets/bot-library.png. -->
 
-Each child Bot has a name and responsibilities. Long descriptions scroll within their cards, while model settings, reasoning effort, and action buttons stay aligned.
+The Bot directory shows avatars and names; click either to open settings. KingBot occupies its own row, and each row of child Bots is centered. Avatars have transparent backgrounds, appearing black in light mode and white in dark mode. The disabled-Bot filter and reset action sit below the directory. Each child Bot has a name and responsibilities.
 
 | Setting | Behavior |
 | --- | --- |
@@ -206,6 +141,21 @@ To redirect an active discussion, enter a new instruction and use Harness's Stee
 
 You can start a new task directly in the same group. To continue an earlier discussion, say “Please continue with the previous proposal.” Each member can speak up to twice per discussion. The design draws on Grok Bot's targeted mentions and visible handoffs. [Grok Bot group chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
 
+### Runtime and waiting
+
+**The total runtime limit is disabled by default.** Continued output is not interrupted merely for exceeding 120 seconds. User steering and stopping take priority. Published replies and valid partial output are retained; operations with uncertain results require verification before retrying.
+
+`memberLimits` configuration values use milliseconds:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `childTotal` | `0` | Disable the total runtime limit |
+| `firstToken` | `120000` | Wait for the first model event |
+| `modelQuiet` | `90000` | Wait for meaningful generation progress |
+| `hostQuiet` | `45000` | Show a waiting notice without cancelling or duplicating the child |
+
+Tools retain their own timeouts and permissions. Provider and Harness limits still apply. A stalled reply is marked incomplete and can be continued.
+
 ### Files, web tools, and skills
 
 Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who replies. If the desktop composer inserts only `@/absolute/path` or `@"absolute path with spaces"`, the plugin saves the file as an attachment. Supported documents include text, Word `.docx`, and PDFs with a text layer, up to 20 MB each. Each import failure is reported separately, and the remaining attachments are still available. Follow-ups on the same topic can reuse those attachments. Scanned PDFs need text recognition first.
@@ -217,6 +167,8 @@ Bots can load `SKILL.md` with `skill` and open referenced files with `read`. `@d
 ## Ask KingBot to set up a group and follow through
 
 In the dedicated conversation, ask KingBot to discuss an earlier topic with a group and return a result. KingBot briefly confirms the title and members and proposes specific roles to fill any gaps. You can name members yourself or ask for a group without a task.
+
+Existing groups remain accessible on later turns and after a restart. Ask KingBot to check progress, forward a literal notice, update requirements, continue the discussion, or start a new task. The host retains confirmed group and workspace identities and asks when a target is ambiguous. Updates stop the old run while preserving context; a new task gets its own goal. Host receipts confirm delivery, and results return to the originating private conversation.
 
 1. Review the members and expand **查看群聊任务** (View group task) when there is a task. Say “Replace the reviewer with the statistician” to update the roster.
 2. Reply `Workspace: name or path` to choose or change the workspace. Use the full path to distinguish duplicate names.
@@ -233,6 +185,8 @@ KingBot adds an **打开群聊** (Open group) button to the original conversatio
 | Bot definitions and model choices | Plugin configuration in the current profile | Groups in the same profile can reuse definitions |
 | Group history and Bot child sessions | Their own group conversation | Child Bots do not automatically read other groups' histories |
 | KingBot's personal long-term memory | SQLite database in the selected King workspace | Shared by the dedicated King conversation and groups in other workspaces |
+
+Original group messages and attachment references remain in the host journal. Interrupting execution does not clear that history. Each Bot restores the current task, latest user guidance, source-linked extracts and recent originals for its own group, and can retrieve exact older messages or attachments when needed. Long histories use token-budgeted extraction and retrieval. Extracts are lossy, not full-text model memory; precise values and corrections retain their sources. New tasks do not automatically inherit old constraints. Group working memory is isolated from other groups and is not promoted to KingBot’s personal long-term memory.
 
 Long-term memory stores explicit requests, stable preferences, and lasting background information. **It does not automatically memorize the full text of every past group chat.** When memory and automatic updates are enabled, memories are extracted from the current user message and retain the supporting original text. Child Bot output is not automatically treated as a fact about the user. Only KingBot reads shared memory directly, though it may include relevant information in an assignment.
 
@@ -290,4 +244,4 @@ Automated coverage includes persistence and retrieval beyond 32 memories, reopen
 
 `npm run smoke` uses Chrome, the Playwright CLI, and a local model stub in an isolated Web profile to check installation, group creation, dynamic moderation, pausing, mentions, returning results, recovery after restart, and context isolation across groups. It compares file reads, skill references, `AGENTS.md`, and `web_search` with a test provider in native sessions and group chats.
 
-The v0.2.1 reset feature was checked through the UI in an isolated profile with synthetic data, including separate member, memory, and association resets and recovery from a missing workspace directory.
+The reset feature was checked through the UI in an isolated profile with synthetic data, including separate member, memory, and association resets and recovery from a missing workspace directory.

@@ -1,3 +1,4 @@
+import { excerpt } from './group-context.ts'
 import { z } from 'zod'
 import type { Group, Row } from './bots.ts'
 import { continuesDiscussion } from './discussion.ts'
@@ -20,6 +21,8 @@ export const taskSchema = z.object({
   revision: z.number().int(),
   runId: z.string().optional(),
   origin: z.string().optional(),
+  returnOrigins: z.array(z.string()).optional(),
+  userPriority: z.boolean().optional(),
   memberIds: z.array(z.string()).optional(),
   question: z.object({ rowId: z.string(), botId: z.string(), text: z.string() }).optional(),
   sourceRows: z.array(z.string()),
@@ -131,11 +134,11 @@ export function taskDigest(task: DiscussionTask, rows: readonly Row[]) {
 export function modelTopic(task: DiscussionTask, rows: readonly Row[]): string {
   const digest = taskDigest(task, rows)
   return JSON.stringify({
-    原始目标: task.goal,
-    最近用户要求: digest.user.slice(-6).map(row => ({ 原文: row.text, 来源: row.id })),
-    约束: digest.constraints.slice(-8).map(row => row.text),
-    用户确认和更正: digest.decisions.slice(-8).map(row => row.text),
-    已保存汇总: digest.result?.text,
+    原始目标: excerpt(task.goal, 1000), 原始消息: task.sourceRows[0] ?? task.id,
+    最近用户要求: digest.user.slice(-6).map(row => ({ 原文: excerpt(row.text, 500), 来源: row.id })),
+    约束: digest.constraints.slice(-8).map(row => ({ 原文: excerpt(row.text, 300), 来源: row.id })),
+    用户确认和更正: digest.decisions.slice(-8).map(row => ({ 原文: excerpt(row.text, 300), 来源: row.id })),
+    已保存汇总: digest.result && { 原文: excerpt(digest.result.text, 1000), 来源: digest.result.id },
     待解决问题: digest.questions.slice(-6),
     待用户回答: task.question?.text,
     附件: digest.documents.map(file => file.attachment.name),
@@ -148,7 +151,7 @@ export function resultRowId(taskId: string, resultId: string) {
   return `${taskId}:returned:${resultId}`
 }
 
-const readOnlyTools = new Set(['read', 'read_image', 'glob', 'grep', 'ls', 'skill', 'web_search', 'web_fetch', 'read_uploaded_document'])
+const readOnlyTools = new Set(['read', 'read_image', 'glob', 'grep', 'ls', 'skill', 'web_search', 'web_fetch', 'read_uploaded_document', 'read_group_history'])
 export function operationMayChangeState(name: string) {
   return !readOnlyTools.has(name)
 }

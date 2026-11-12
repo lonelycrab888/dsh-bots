@@ -1,3 +1,4 @@
+import { groupCheckpointSchema, type GroupCheckpoint } from './group-context.ts'
 import { z } from 'zod'
 import { memberExecutionSchema } from './member-runtime.ts'
 import { botAvatars } from './avatars.ts'
@@ -22,17 +23,17 @@ const document = z.object({
   }),
 }).transform(value => value as FileBlock)
 const row = z.union([
-  z.object({ id: z.string(), author: z.literal('user'), text: z.string(), continues: z.literal(true).optional(), control: z.literal(true).optional(), documents: z.array(document).optional() }),
-  z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional(), taskLink: z.string().optional(), groupReference: z.literal(true).optional() }),
+  z.object({ at: z.number().optional(), id: z.string(), author: z.literal('user'), text: z.string(), continues: z.literal(true).optional(), control: z.literal(true).optional(), documents: z.array(document).optional() }),
+  z.object({ at: z.number().optional(), id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional(), taskLink: z.string().optional(), groupReference: z.literal(true).optional() }),
   z.object({
-    id: z.string(), author: z.literal('bot'), botId, text: z.string(),
+    at: z.number().optional(), id: z.string(), author: z.literal('bot'), botId, text: z.string(),
     status: z.enum(['working', 'done', 'error', 'stopped', 'waiting']), execution: memberExecutionSchema.optional(), taskId: z.string().optional(), resultKind: z.enum(['partial', 'final']).optional(), sessionId: z.string().optional(),
     literal: z.literal(true).optional(), privateToKing: z.literal(true).optional(), groupReference: z.literal(true).optional(),
   }),
 ])
 const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), tasks: z.array(taskSchema).optional(), activeTaskId: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
 const stateSchema = z.object({
-  inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish(),
+  checkpoints: z.array(groupCheckpointSchema).optional(), inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish(),
   groupTaskUpdates: z.array(groupTaskUpdateSchema).optional(), peerMessages: z.array(peerMessageSchema).optional(), groupChoice: groupChoiceSchema.nullish(), groupDeliveries: z.array(groupDeliverySchema).optional(),
 })
 
@@ -44,6 +45,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface PluginRecordMap {
+    'plugin:dsh-bots/checkpoint': GroupCheckpoint
     'plugin:dsh-bots/members': Group['members']
     'plugin:dsh-bots/rows': Group['rows']
     'plugin:dsh-bots/coordinator': Member
@@ -63,12 +65,19 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 15,
+  stateVersion: 16,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
     if (event.seq < state.inherited) return state
     const record = pluginRecordOf(event)
+    if (record?.type === 'plugin:dsh-bots/checkpoint' && state.group && state.group.mode !== 'king') {
+      const parsed = groupCheckpointSchema.safeParse(record.data)
+      if (!parsed.success) return state
+      const old = state.checkpoints?.find(item => item.botId === parsed.data.botId)
+      if (old && old.revision >= parsed.data.revision) return state
+      return { ...state, checkpoints: [...(state.checkpoints ?? []).filter(item => item.botId !== parsed.data.botId), parsed.data] }
+    }
     if(record?.type==='plugin:dsh-bots/epoch' && state.group){
       const parsed=z.object({value:z.number().int().nonnegative()}).safeParse(record.data)
       return parsed.success?{...state,group:{...state.group,sessionEpoch:parsed.data.value}}:state

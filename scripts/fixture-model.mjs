@@ -40,7 +40,8 @@ class Fixture extends LlmAdapter {
       if (intentCheck) {
         const { 用户新消息: requested } = JSON.parse(latest)
         if (requested.includes('P038-STALE')) slow = true
-        text = requested.includes('你们现在做到哪了') ? '{"kind":"status"}'
+        text = requested.includes('讨论架构建议') || /验收.*(?:原议题|主持恢复|主持等待中接管|首次主持故障|长时间轴)/u.test(requested) || requested.includes('新任务') || requested.includes('无关') ? JSON.stringify({ kind: 'redirect', task: requested })
+          : requested.includes('你们现在做到哪了') ? '{"kind":"status"}'
           : requested.includes('改做一件别的事：') ? JSON.stringify({ kind: 'redirect', task: requested.split('：').at(-1) })
           : requested.includes('把时间留给我') ? '{"kind":"pause"}'
           : requested.includes('方向改成什么先等等') ? '无法判断'
@@ -238,6 +239,31 @@ class Fixture extends LlmAdapter {
         else if (tools.some(tool => tool.name === 'web_search')) toolCall = { name: 'web_search', arguments: '{"queries":["DSH fixture query"]}' }
       }
     }
+    if (role === 'KingBot' && systemText.includes('这是你与用户的专属对话') && latest.includes('P039-')) {
+      const call = (name, args) => ({ name, arguments: JSON.stringify(args) })
+      const results = toolResults.flatMap(result => result.content.filter(block => block.type === 'text').map(block => block.text))
+      if (!results.length) toolCall = call('list_existing_groups', {})
+      else if (results.length === 1) {
+        let directory
+        try { directory = JSON.parse(results[0]) } catch { directory = {} }
+        const action = /P039-(?:REF-)?UPDATE/u.test(latest) ? 'update' : /P039-(?:REF-)?TASK/u.test(latest) ? 'task' : /P039-(?:REF-)?INSPECT/u.test(latest) ? 'inspect' : 'send'
+        const title = latest.includes('P039-OTHER') ? 'P038 其他工作群' : 'P038 路由验收群'
+        const target = latest.includes('P039-MISSING') ? 'session-missing-039' : latest.includes('P039-REF') ? '这个群' : directory.groups?.find(item => item.title.includes(title))?.id ?? title
+        toolCall = call('operate_existing_group', { kind: action, target, body: latest })
+      } else if (results.length === 2 && latest.includes('P039-RETRY')) {
+        const delivery = JSON.parse(results[1]).delivery
+        toolCall = call('operate_existing_group', { kind: delivery.kind, target: delivery.targetId, body: delivery.body })
+      } else text = JSON.stringify({ reply: 'P039 工具调用已返回，请以宿主回执为准。' })
+    }
+    if (role !== 'KingBot' && (discussion || addressed) && latest.includes('P039-')) {
+      const payload = JSON.parse(input)
+      if (latest.includes('P039-READ') && !toolResults.length) toolCall = { name: 'read_group_history', arguments: JSON.stringify({ query: 'P039-MIDDLE' }) }
+      text = JSON.stringify({ role, marker: 'P039-REPLY', hasHistory: Boolean(payload.群工作记忆?.recent?.length), compressed: payload.群工作记忆?.compressedSegments, results: toolResults.map(result => result.content) })
+      if (latest.includes('P039-BUSY') && !JSON.stringify(payload.群聊议题).includes('更正')) slow = true
+      if (latest.includes('P039-FIRST')) duration = 35_000
+      if (latest.includes('P039-SILENT')) duration = 130_000
+      if (latest.includes('P039-TOOL') && !toolResults.length) toolCall = { name: 'read', arguments: '{"file_path":"p038-hostwait.txt"}' }
+    }
     // The host also calls the adapter to generate titles for native conversations.
     if (prompt) {
       await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ at: Date.now(), sessionId, role, speaker, input, moderator, discussion, addressed, summarizing, intentCheck,
@@ -247,7 +273,13 @@ class Fixture extends LlmAdapter {
         seesGroupFact: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('GROUP-A-ONLY-496'))),
         seesWorkspaceInstructions: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('WORKSPACE-INSTRUCTIONS-756'))),
         calledTool: toolCall?.name, failure,
-        ...(/P038-TEST-0[23]/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
+        ...(/P038-TEST-0[23]|P039-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
+    }
+    if (role !== 'KingBot' && latest?.includes('P039-STREAM')) {
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      for (let i = 0; i < 14; i++) { yield { type: 'text-delta', index: 0, text: `持续输出 ${i}；` }; await delay(10_000, undefined, { signal }) }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: '持续输出结束' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }; return
     }
     await delay(duration ?? (slow ? 12_000 : 450), undefined, { signal })
     if (failure) throw new Error(failure)
@@ -280,6 +312,12 @@ export async function apply(ctx) {
     return next()
   })
   ctx.on('tools/execute', async (execution, next) => {
+    if (execution.name === 'write' && execution.arguments.file_path === 'p1-pending-write.txt') {
+      const result = await next()
+      // The disk side effect happens, but the host has not received a tool result.
+      await delay(12_000, undefined, { signal: execution.signal })
+      return result
+    }
     if (execution.name !== 'read') return next()
     const path = execution.arguments.file_path
     if (path === 'p038-progress.txt') await delay(6000, undefined, { signal: execution.signal })
