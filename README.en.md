@@ -6,7 +6,12 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.6`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.7`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+
+## v0.3.7
+
+- Host owners can ask KingBot to find an existing group, check its progress, post a literal notice, or delegate a discussion. Duplicate titles require a workspace choice. Delegated work waits for the current topic and reports back to the original chat.
+- User messages in group chats show the current Harness account photo in its original colors. The “你” avatar appears when signed out or when a photo is unavailable.
 
 ## v0.3.6
 
@@ -85,7 +90,7 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.6.tgz`. [v0.3.6 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.6)
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.7.tgz`. [v0.3.7 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.7)
 
 To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
@@ -97,7 +102,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs directly from the main branch. Its v0.3.6 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
+`#main` installs directly from the main branch. Its v0.3.7 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 

@@ -77,13 +77,14 @@ class Fixture extends LlmAdapter {
           duty: name === '资料核对助手' && !latest.includes('上次回复校验失败：') ? ''
             : name === '实验设计助手' ? '评估研究方法论并提出实验设计' : '整理并核对合成验收资料',
         })) })
-      } else if (systemText.includes('这是你与用户的专属对话') && /完成离线清单方案|新建空白验收群聊|新建记忆隔离验收群聊|验收恢复任务|额度补建群/.test(latest)) {
+      } else if (systemText.includes('这是你与用户的专属对话') && /完成离线清单方案|新建空白验收群聊|新建记忆隔离验收群聊|验收恢复任务|额度补建群|P037-DUPLICATE-GROUP/.test(latest)) {
         const available = JSON.parse(systemText.match(/可用成员：(\[.*?\])。普通工作区：/su)[1])
         const capacity = latest.includes('额度补建群')
         const recovering = latest.includes('验收恢复任务')
         const runTask = recovering || latest.includes('完成离线清单方案')
         text = JSON.stringify({ tasks: [], groupAction: {
-          title: capacity ? '额度补建群' : recovering ? '恢复验收群' : runTask ? '清单设计讨论' : latest.includes('新建记忆隔离验收群聊') ? '记忆隔离验收群' : '空白验收群',
+          title: capacity ? '额度补建群' : recovering || latest.includes('P037-DUPLICATE-GROUP') ? '恢复验收群'
+            : runTask ? '清单设计讨论' : latest.includes('新建记忆隔离验收群聊') ? '记忆隔离验收群' : '空白验收群',
           topic: recovering ? '验收恢复任务，预算上限 60 元；比较两份依据' : runTask ? '完成离线清单方案，比较同步与纯本地方案' : '仅创建群聊',
           memberIds: available.filter(member => member.name === '架构师' || recovering && member.name === '审阅员').map(member => member.id),
           newBots: capacity ? [{ name: '额度验收群助手', duty: '核查名额' }] : runTask && !recovering ? [{ name: '离线方案审阅员', duty: '专门复核离线存储取舍' }] : [],

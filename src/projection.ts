@@ -7,6 +7,7 @@ import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-
 import { taskSchema, type DiscussionTask } from './tasks.ts'
 import type { Group, Member } from './bots.ts'
 import { confirmationId, groupProposalSchema, type GroupProposal } from './group-creation.ts'
+import { groupChoiceSchema, groupDeliverySchema, type GroupDelivery } from './existing-groups.ts'
 
 const botId = z.string()
 const member = z.object({ id: botId, name: z.string(), duty: z.string(), avatar: z.enum(botAvatars).optional(), sessionId: z.string(), contextWorkspace: z.string().optional(), contextRevision: z.number().int().nonnegative().optional(), historyStart: z.number().int().nonnegative().optional() })
@@ -20,14 +21,18 @@ const document = z.object({
 }).transform(value => value as FileBlock)
 const row = z.union([
   z.object({ id: z.string(), author: z.literal('user'), text: z.string(), continues: z.literal(true).optional(), control: z.literal(true).optional(), documents: z.array(document).optional() }),
-  z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional(), taskLink: z.string().optional() }),
+  z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional(), taskLink: z.string().optional(), groupReference: z.literal(true).optional() }),
   z.object({
     id: z.string(), author: z.literal('bot'), botId, text: z.string(),
     status: z.enum(['working', 'done', 'error', 'stopped']), taskId: z.string().optional(), resultKind: z.enum(['partial', 'final']).optional(), sessionId: z.string().optional(),
+    literal: z.literal(true).optional(), privateToKing: z.literal(true).optional(), groupReference: z.literal(true).optional(),
   }),
 ])
 const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), tasks: z.array(taskSchema).optional(), activeTaskId: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
-const stateSchema = z.object({ inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish() })
+const stateSchema = z.object({
+  inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish(),
+  groupChoice: groupChoiceSchema.nullish(), groupDeliveries: z.array(groupDeliverySchema).optional(),
+})
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
@@ -43,6 +48,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'plugin:dsh-bots/king': { mode: 'king' }
     'plugin:dsh-bots/epoch': { value:number }
     'plugin:dsh-bots/group-proposal': { proposal: GroupProposal | null }
+    'plugin:dsh-bots/existing-group-choice': { choice: z.infer<typeof groupChoiceSchema> | null }
+    'plugin:dsh-bots/existing-group-delivery': GroupDelivery
     'plugin:dsh-bots/task': { task: DiscussionTask; active: boolean }
     'plugin:dsh-bots/group-brief': { text: string }
   }
@@ -52,7 +59,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 12,
+  stateVersion: 13,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
@@ -66,6 +73,15 @@ export const projection: Definition & { wire: NonNullable<Definition["wire"]> } 
     if (record?.type === 'plugin:dsh-bots/group-proposal' && state.group?.mode === 'king') {
       const parsed = z.object({ proposal: groupProposalSchema.nullable() }).safeParse(record.data)
       return parsed.success ? { ...state, pendingGroup: parsed.data.proposal } : state
+    }
+    if (record?.type === 'plugin:dsh-bots/existing-group-choice' && state.group?.mode === 'king') {
+      const parsed = z.object({ choice: groupChoiceSchema.nullable() }).safeParse(record.data)
+      return parsed.success ? { ...state, groupChoice: parsed.data.choice } : state
+    }
+    if (record?.type === 'plugin:dsh-bots/existing-group-delivery' && state.group?.mode === 'king') {
+      const parsed = groupDeliverySchema.safeParse(record.data)
+      if (!parsed.success || state.groupDeliveries?.some(item => item.requestId === parsed.data.requestId)) return state
+      return { ...state, groupDeliveries: [...state.groupDeliveries ?? [], parsed.data] }
     }
     if (record?.type === 'plugin:dsh-bots/task' && state.group && state.group.mode !== 'king') {
       const parsed = z.object({ task: taskSchema, active: z.boolean() }).safeParse(record.data)

@@ -12,8 +12,9 @@ const root = new URL('../', import.meta.url)
 const { engines } = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 const upgradeFrom = process.env.DSH_BOTS_UPGRADE_FROM
 const oldVersion = upgradeFrom && JSON.parse(execFileSync('tar', ['-xOf', resolve(upgradeFrom), 'package/package.json'], { encoding: 'utf8' })).version
-const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4', '0.3.5'].includes(oldVersion)
+const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4', '0.3.5', '0.3.6'].includes(oldVersion)
 const oldRoutesThroughKing = legacyRouting || ['0.2.2', '0.3.1', '0.3.2'].includes(oldVersion)
+const oldMentions = !!oldVersion && oldVersion !== '0.3.6'
 const dir = await mkdtemp(join(tmpdir(), 'dsh-bots-smoke-'))
 const env = { ...process.env, DSH_HOME: dir }
 const session = `dsh-bots-${process.pid}`
@@ -58,6 +59,53 @@ async function stopHost(signal = 'SIGTERM') {
 
 async function requests() {
   return (await readFile(requestsPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+}
+
+async function exerciseExistingGroups() {
+  await stopHost()
+  browser('goto', await startHost())
+  const notice = '明天下午两点开会，请带 **材料**。P037-NOTICE'
+  const before = (await requests()).length
+  browser('run-code', (async page => {
+    const button = name => page.getByRole('button', { name, exact: true })
+    const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+    const log = page.getByRole('log', { name: '群聊时间线' })
+    async function king() {
+      await button('Bots 定义').click()
+      await button('KingBot').click()
+      await button('与 KingBot 对话').click()
+      await page.getByRole('region', { name: 'KingBot 专属对话' }).waitFor()
+    }
+    async function send(text) {
+      await editor.fill(text)
+      await button('发送消息').click()
+    }
+    await king()
+    const target = '@架构师 给出架构说明'
+    await send(`你进『${target}』群了吗，帮我发一条`)
+    await log.getByText(/由 KingBot 主持.*就发/s).waitFor()
+    await send(`就发『NOTICE_TEXT』`)
+    const receipt = log.getByRole('status').filter({ hasText: /已以 KingBot 身份发送到/ })
+    await receipt.waitFor()
+    await receipt.getByRole('button', { name: '打开群聊' }).click()
+    const posted = log.locator('article[data-author=bot]').filter({ hasText: 'NOTICE_TEXT' })
+    await posted.waitFor()
+    if (await posted.count() !== 1 || !await posted.getByText('KingBot', { exact: true }).count()) throw new Error('Notice did not preserve text and author')
+    await king()
+    await send(`看一下『${target}』聊到哪了`)
+    await log.locator('article[data-author=bot]').last().getByText(/当前议题|已有结论|阶段结果/).waitFor()
+    await send('在『绝对不存在的验收群』发一句『不能发错』')
+    await log.getByText(/找不到可用的群聊「绝对不存在的验收群」/).waitFor()
+    const results = log.locator('article[data-author=bot]').filter({ hasText: /群聊结论.*讨论汇总完成/s })
+    const previous = await results.count()
+    await send(`让『${target}』讨论 P037-EXISTING-TASK，办完告诉我`)
+    await log.getByRole('status').filter({ hasText: /已交办给|已排队交办给/ }).waitFor()
+    await results.nth(previous).waitFor()
+  }).toString().replaceAll('NOTICE_TEXT', notice))
+  const calls = (await requests()).slice(before)
+  assert.ok(calls.every(call => !call.input.includes('P037-NOTICE') || call.input.includes('P037-EXISTING-TASK')))
+  assert.ok(calls.some(call => call.moderator && call.input.includes('P037-EXISTING-TASK')))
+  console.log('Verified cold group lookup, saved progress, literal notice without dispatch, and task return.')
 }
 
 function assertCompleteTimeline(calls, topic) {
@@ -316,7 +364,7 @@ try {
     await page.getByRole('region', { name: '群聊', exact: true }).waitFor()
 
     const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
-    if (upgrading) {
+    if (process.env.DSH_BOTS_SMOKE_OLD_MENTIONS) {
       await page.getByRole('button', { name: /@架构师/ }).click()
       await editor.getByText('@架构师').waitFor()
     } else {
@@ -349,7 +397,8 @@ try {
     await page.getByRole('button', { name: /停止生成|Stop generating/i }).waitFor({ state: 'hidden' })
     if (await log.getByText('· 讨论', { exact: true }).count()) throw new Error('Discussion must not add a badge')
   }).toString().replace('process.env.DSH_BOTS_SMOKE_WORKSPACE', JSON.stringify(docs)).replace('process.env.DSH_BOTS_SMOKE_UPGRADE', String(!!upgradeFrom))
-    .replace('process.env.DSH_BOTS_SMOKE_LEGACY', String(legacyRouting)).replace('process.env.DSH_BOTS_SMOKE_OLD_ROUTING', String(oldRoutesThroughKing)))
+    .replace('process.env.DSH_BOTS_SMOKE_LEGACY', String(legacyRouting)).replace('process.env.DSH_BOTS_SMOKE_OLD_ROUTING', String(oldRoutesThroughKing))
+    .replace('process.env.DSH_BOTS_SMOKE_OLD_MENTIONS', String(oldMentions)))
 
   const beforeRestart = await requests()
   const normalRoles = oldRoutesThroughKing ? ['KingBot', '架构师', 'KingBot', 'KingBot', '审阅员', 'KingBot'] : ['架构师', '审阅员']
@@ -702,6 +751,7 @@ try {
       await exerciseLongReplies()
       await exerciseTaskRecovery(defaultWorkspace)
     }
+    if (process.env.DSH_BOTS_EXISTING_GROUPS_SMOKE === '1') await exerciseExistingGroups()
     console.log(`Verified natural Bot creation, dynamic discussion, confirmed group placement, and return of results on DSH ${runtime}.`)
   }
 } catch (error) {

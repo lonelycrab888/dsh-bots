@@ -4,7 +4,7 @@ import type { BotAvatar } from './avatars.ts'
 import type { ResetOptions, PendingReset } from './reset.ts'
 import { KING_REMOTE } from './king-remote.ts'
 import { watchActivation } from './lifecycle.ts'
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
@@ -12,6 +12,7 @@ import styles from './style.css'
 import type { MemoryPage } from './workspace-memory.ts'
 import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
 import { groupMentionSource, type GroupMentionSource } from './mention.ts'
+import { avatarStore, followAccountAvatar, preloadAvatar, type AccountFrame } from './account-avatar.ts'
 
 export const inject = ['slots', 'sessions', 'inputTriggers', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager', 'workspaces', 'uiWorkspace', 'remote.directoryPicker']
 
@@ -422,14 +423,16 @@ function TaskPanel({ group, choose, source }: {
   </aside>
 }
 
-function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask }: {
+function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask, accountAvatar }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
   openSession: (id: string) => void
   chooseGroup(id: string, confirm: boolean): Promise<void>
   chooseTask(task: DiscussionTask, action: TaskAction): Promise<void>
+  accountAvatar: ReturnType<typeof avatarStore>
 }) {
   const group = useProjection('dshBots')
+  const userAvatar = useSyncExternalStore(accountAvatar.subscribe, accountAvatar.getSnapshot)
   const [library, setLibrary] = useState<Library>()
   useEffect(() => {
     let disposed = false, generation = 0
@@ -511,10 +514,14 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
             const bot = row.author === 'bot' ? (row.botId === coordinatorId ? { id: coordinatorId, name: coordinatorName } : group.members.find(member => member.id === row.botId)) : undefined
             const name = row.author === 'user' ? '你' : bot?.name ?? 'Bot'
             return <article key={row.id} className="dsh-bots-message" data-author={row.author} data-row-id={row.id} tabIndex={-1}>
-              <Avatar id={bot?.id} name={name} avatar={library?.bots.find(item => item.id === bot?.id)?.avatar ?? (bot && 'avatar' in bot ? bot.avatar : undefined)} />
+              {row.author === 'user' && group.mode !== 'king' && userAvatar
+                ? <span className="dsh-bots-avatar dsh-bots-account-avatar" aria-hidden="true">
+                    <img src={userAvatar} referrerPolicy="no-referrer" alt="" onError={() => accountAvatar.failed(userAvatar)} />
+                  </span>
+                : <Avatar id={bot?.id} name={name} avatar={library?.bots.find(item => item.id === bot?.id)?.avatar ?? (bot && 'avatar' in bot ? bot.avatar : undefined)} />}
               <div className="dsh-bots-bubble">
                 <strong>{name}</strong>
-                {row.author === 'bot' && row.status === 'done'
+                {row.author === 'bot' && row.status === 'done' && !row.literal
                   ? <MarkdownReply text={row.text} />
                   : <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
                       {row.author === 'bot' && row.status === 'working' ? row.text || '正在回复…' : row.text}
@@ -533,10 +540,14 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   </section>
 }
 
+interface AccountClient { version: string; locale: string; timezoneOffsetSeconds: number }
 interface ClientContext {
   on(event: string, callback: () => void): () => void
   plugin(plugin: { inject?:string[]; apply(ctx: ClientContext): void }): { dispose(): unknown }
   effect(setup: () => () => void): void
+  inject(deps: string[], setup: (ctx: ClientContext) => void): void
+  get(key: 'accountUi'): { clientMetadata(locale: string): AccountClient } | undefined
+  remoteAccess: { whenAccess(action: string, setup: () => Generator<() => unknown, void>): void }
   slots: {
     inject(name: string, register: () => unknown): void
     register(options: Record<string, unknown>, component: unknown): unknown
@@ -557,6 +568,11 @@ interface ClientContext {
     dshBots:{saveCatalog(request:Record<string,unknown>):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
     directoryPicker:{pick():Promise<{ok:true;value:string|null}|{ok:false;error:{message:string}}>}
     $on(event: string, callback: () => void): () => void
+    $stream(options: { name: string; open(signal: AbortSignal): unknown; ended(): Error; carrierFailed(): void }): AsyncIterable<AccountFrame> & { dispose(): unknown }
+    account: {
+      watch(signal: AbortSignal): unknown
+      getProfile(client: AccountClient): Promise<{ ok: true; value: { status: 'ready'; value: { avatarUrl?: string | null } } | { status: 'failed' } | null } | { ok: false }>
+    }
     pluginManager: { listBundles(): Promise<{ ok: true; value: { name: string; enabled: boolean }[] } | { ok: false; error: { message: string } }> }
     session: { modelCatalog(): Promise<{ ok: true; value: { groups: ModelGroup[] } } | { ok: false; error: { message: string } }> }; settings: {
     describe(): Promise<{ ok: true; value: { writable: boolean; namespaces: { ns: string; value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; kingWorkspace?: {path:string;sessionId:string} }; revision: number }[] } } | { ok: false; error: { message: string } }>
@@ -590,6 +606,32 @@ export async function apply(ctx: ClientContext) {
 }
 
 function mountClient(ctx: ClientContext) {
+  const accountAvatar = avatarStore()
+  ctx.inject(['remote.account', 'remoteAccess'], scoped => {
+    scoped.remoteAccess.whenAccess('account/watch', function* () {
+      const lifetime = new AbortController()
+      let generation = 0
+      const stream = scoped.remote.$stream({
+        name: 'dsh-bots-account-avatar',
+        open: signal => scoped.remote.account.watch(signal),
+        ended: () => new Error('account stream ended'),
+        carrierFailed: () => { generation++; accountAvatar.publish() },
+      })
+      yield () => { lifetime.abort(); accountAvatar.publish(); return stream.dispose() }
+      void followAccountAvatar(stream, async () => {
+        const epoch = generation
+        const locale = document.documentElement.lang || navigator.language
+        const client = scoped.get('accountUi')?.clientMetadata(locale) ?? {
+          version: '0.2.2-rc.1', locale, timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
+        }
+        const result = await scoped.remote.account.getProfile(client)
+        if (epoch === generation && result.ok && result.value?.status === 'ready') return result.value.value.avatarUrl
+      }, async (url, signal) => {
+        const epoch = generation
+        return await preloadAvatar(url, signal) && epoch === generation
+      }, accountAvatar.publish, lifetime.signal).catch(() => {})
+    })
+  })
   async function command<T>(id:string, request:Record<string,unknown>):Promise<T> {
     const result=await ctx.remote.dshBots.manage(id,request)
     if(!result.ok)throw new Error(result.error.message)
@@ -685,6 +727,7 @@ function mountClient(ctx: ClientContext) {
     name: 'conversation.input.dock', id: 'dsh-bots-timeline', order: 90,
     inject: (sessionId: string) => ({
       catalog,
+      accountAvatar,
       openSession: (id: string) => ctx.uiWorkspace.openSession(id),
       async chooseTask(task: DiscussionTask, action: TaskAction) {
         const result = await ctx.remote.dshBots.manage(sessionId, { action: 'task-action', taskAction: action, taskId: task.id, revision: task.revision })
