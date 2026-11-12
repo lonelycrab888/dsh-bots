@@ -1,0 +1,48 @@
+{
+  "format": 1,
+  "title": "dsh-bots",
+  "plugins": [
+    {
+      "name": "dsh-bots",
+      "title": {
+        "en": "Bots Group Chat",
+        "zh": "Bots 群聊"
+      },
+      "description": {
+        "en": "Named Bots, peer discussion, and KingBot summaries.",
+        "zh": "自定义 Bot、群聊互评和 KingBot 汇总。"
+      },
+      "author": "lonelycrab888",
+      "homepage": "https://github.com/lonelycrab888/dsh-bots",
+      "repository": {
+        "url": "https://github.com/lonelycrab888/dsh-bots"
+      },
+      "versions": [
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1794461104,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "commit": "97547f57329d39ba6a598f76cc881fd266a7647b"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1 || 0.2.2-rc.2"
+          }
+        },
+        {
+          "version": "0.2.1",
+          "publishTimestamp": 1794432733,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "commit": "072288a21b89cc2c7f9d8187c188aec0e84a8f63"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1"
+          }
+        }
+      ]
+    }
+  ]
+}
