@@ -127,3 +127,11 @@ test('dispatch uses only current user-created member IDs and rejects remembered 
     assert.throws(() => parsePlan(JSON.stringify({ tasks: [{ botId: id, task: '旧编号任务' }] }), current))
   }
 })
+
+
+test('KingBot preserves a structured existing-group operation and rejects mixed creation', () => {
+  const action = { kind: 'send', target: '已有群', body: '验证通知' }
+  assert.deepEqual(parsePlan(JSON.stringify({ existingGroupAction: action }), []).existingGroupAction, action)
+  assert.throws(() => parsePlan(JSON.stringify({ existingGroupAction: action, groupAction: { title: '替代群' } }), []))
+  assert.equal(parsePlan('{"reply":"你好","existingGroupAction":null}', []).existingGroupAction, undefined)
+})

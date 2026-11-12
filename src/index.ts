@@ -36,7 +36,7 @@ import { confirmationId, describeGroupChange, describeGroupProposal, groupReply,
 import { continuesDiscussion, discussionInstructions, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep, type DiscussionIntent } from './discussion.ts'
 import { findTask, modelTopic, newTask, operationMayChangeState, resultRowId, taskActionLabel, taskControl, taskDigest, taskRows, type DiscussionTask, type TaskAction, type TaskOperation } from './tasks.ts'
 import { acknowledgePeerTool, peerMessageId, peerReceipt, registerPeerTools, sameSend, sendPeerTool, type PeerChannel, type PeerMessage, type PeerTools } from './peer-messages.ts'
-import { confirmedGroupRoute, deliveryRowId, groupProgress, groupTitle, isGroupReference, matchingGroups, parseExistingGroupRequest, queuedGroupTask, workspaceMatches, type ExistingGroup, type GroupDelivery, type GroupTaskUpdate, type ExistingGroupRequest } from './existing-groups.ts'
+import { groupRequestSchema, confirmedGroupRoute, deliveryRowId, groupProgress, groupTitle, isGroupReference, matchingGroups, parseExistingGroupRequest, queuedGroupTask, workspaceMatches, type ExistingGroup, type GroupDelivery, type GroupTaskUpdate, type ExistingGroupRequest } from './existing-groups.ts'
 import { registerKingGroupTools, type KingGroupTools } from './group-tools.ts'
 export { Config } from './config.ts'
 
@@ -1469,12 +1469,12 @@ export async function apply(ctx: Context, config: Config) {
       const workspaces = group.mode === 'king' ? groupWorkspaces() : []
       const previousProposal = pendingGroup && isGroupRevision(text) ? pendingGroup : undefined
       if (pendingGroup) appendPluginRecord(parent.session, 'plugin:dsh-bots/group-proposal', { proposal: null })
-      const instructions = `直接回应最新用户消息。严格返回 JSON。普通答复为 {"reply":"答复"}。平时用一两句，只询问影响结果而且无法从本轮和当前独聊确定的信息。实际交付物可按需展开。
-${group.mode === 'king' ? '每一轮都可调用 list_existing_groups 查找已有群和本独聊最近确认的目标，operate_existing_group 查看记录、原文通知、继续/修正议题或交办新任务。理解用户自然表达并实际调用工具，不要求用户套用句式。明确目标不重复询问，不把续发变成建群；多个可能目标才询问。只有宿主工具回执能证明成功。' : ''}
+      const instructions = `直接回应最新用户消息。最终答复返回 JSON（工具调用在最终答复前完成）。普通答复为 {"reply":"答复"}。平时用一两句，只询问影响结果而且无法从本轮和当前独聊确定的信息。实际交付物可按需展开。
+${group.mode === 'king' ? '已有群的操作必须实际执行，不能仅在 reply 中承诺稍后执行。优先返回 existingGroupAction：{"kind":"send|task|update|inspect|locate","target":"群名或群ID，指代最近目标时填这个群","body":"完整通知原文或任务目标","workspace":"仅在用户指定时填写"}，由宿主立即执行并显示真实回执；不要同时返回 groupAction。仅发通知用 send；要求成员讨论或完成任务用 task；修正/继续当前任务用 update；询问进度用 inspect。用户已授权时直接提交，不再确认。咨询、否定、引用和普通聊天不提交操作。你也可以实际调用工具，工具执行成功后不要再返回 existingGroupAction。每一轮都可调用 list_existing_groups 查找已有群和本独聊最近确认的目标，operate_existing_group 查看记录、原文通知、继续/修正议题或交办新任务。理解用户自然表达并实际调用工具，不要求用户套用句式。明确目标不重复询问，不把续发变成建群；多个可能目标才询问。只有宿主工具回执能证明成功。' : ''}
 ${group.mode === 'king' ? `这是你与用户的专属对话。“帮我建立一下”“这几个都帮我建立一下”也是明确创建请求。按当前独聊理解“这几个”指的是谁。用户列出多个角色时分别处理；斜杠可以表示同一角色有多个职责，例如“方法论/实验设计助手”可拟名“实验设计助手”，在 duty 中完整保留方法论和实验设计要求。
 本轮信息足够时返回 botActions 数组（每次最多 6 个）：[{"name":"简短合法名称","duty":"用户要求的职责和边界","reuse":false,"evidence":"本轮请求的逐字原文"}]。名称只用中英文、数字、下划线和连字符，最多 24 个字符。先核对已有成员的名称和职责，真正匹配时填已有名称并标记 reuse:true。同名但职责不同时填新职责并标记 reuse:false，由宿主提示冲突。咨询、否定和引用只回复，不提交操作。只有宿主可确认保存结果。
 已有名称：${JSON.stringify(config.library.get().bots.map(bot => bot.name))}。已有成员职责：${JSON.stringify(config.library.get().bots.map(({ name, duty, archived }) => ({ name, duty, archived })))}。` : '不要返回botActions；创建子Bot请引导用户到KingBot专属对话。'}
-${group.mode === 'king' ? `用户要建群，或交给你一个适合多人讨论的实际任务时，可以提出方案。简单问题直接回答。咨询、引用、否定和无关话题都不得修改或确认旧方案。
+${group.mode === 'king' ? `只有用户明确要新建群，或新任务确实没有合适的已有群时，才可以提出建群方案。用户要求进入已有群、向刚建的群派任务、继续或催促时，提交 existingGroupAction，不得创建同名替代群。简单问题直接回答。咨询、引用、否定和无关话题都不得修改或确认旧方案。
 返回 groupAction：{"title":"简短群名","topic":"保留原任务的目标、限制、交付物","memberIds":["现有成员ID"],"newBots":[{"name":"建议新建的名称","duty":"具体职责"}],"workspaceId":null,"runTask":false,"evidence":"本轮用户直接请求的逐字原文"}。用户指定名单时按该名单，否则按职责推荐启用的成员。确有缺口才建议新 Bot。仅建群时 runTask=false；有任务时为 true 并至少推荐两名子 Bot。用户指定工作区时选对应 ID，重名且没给路径时留空。用户要求修改待确认方案时保留未修改的内容，只变更明确指出的部分。方案由宿主确认并执行，不同时提交 botActions。
 可用成员：${JSON.stringify(config.library.get().bots.filter(bot => !bot.archived).map(({ id, name, duty }) => ({ id, name, duty })))}。普通工作区：${JSON.stringify(workspaces.map(({ id, title }) => ({ id, title })))}。当前待确认方案：${JSON.stringify(previousProposal ?? null)}。` : '不要返回 groupAction；请引导用户到 KingBot 专属对话筹建群聊。'}
 ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自动更新已关闭，不要返回memoryActions，也不要声称已记住或忘记。'}`
@@ -1501,6 +1501,10 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
       const creating = group.mode === 'king' && isBotCreationRequest(text)
       const prepare = (output: string) => {
         const plan = parsePlan(output, [])
+        if (plan.existingGroupAction !== undefined) {
+          if (group.mode !== 'king' || !groupRequester) throw new Error('只能在 KingBot 专属对话操作已有群')
+          groupRequestSchema.parse(plan.existingGroupAction)
+        }
         if (plan.groupAction !== undefined && groups.stateOf(parent.session).groupDeliveries?.some(item => item.requestId === groupRequester?.id)) throw new Error('本轮已操作现有群，不能再创建替代群。')
         if (plan.groupAction !== undefined) {
           if (group.mode !== 'king' || plan.botActions !== undefined) throw new Error('建群方案只能在 KingBot 专属对话中提交，新成员建议请写入 groupAction.newBots')
@@ -1530,6 +1534,10 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
         prepared = prepare(output)
       }
       const { plan, creation, proposal } = prepared
+      if (plan.existingGroupAction !== undefined && groupRequester) {
+        await handleExistingGroup(parent, original, planner, groupRequester, signal, groupRequestSchema.parse(plan.existingGroupAction))
+        return
+      }
       let botStatus = ''
       if (proposal) {
         appendPluginRecord(parent.session, 'plugin:dsh-bots/group-proposal', { proposal })
@@ -1779,7 +1787,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
       signal.throwIfAborted()
       child.model.select(model)
       ctx.get('sessionTitle')?.rename(child.session, `Bot · ${member.name}`)
-      const history = group.mode === 'king' ? group.rows.filter(row => row.author === 'user' || row.author === 'bot' && row.status === 'done').slice(-12).map(row => ({ from: row.author, text: row.text })) : []
+      const history = group.mode === 'king' ? group.rows.filter(row => row.author !== 'bot' || row.status === 'done').slice(-16).map(row => ({ from: row.author === 'notice' ? 'host-receipt' : row.author, text: row.text, ...('sessionId' in row && row.sessionId ? { groupId: row.sessionId } : {}) })) : []
       let groupContext: ReturnType<typeof prepareContext>['input'] | undefined
       if (group.mode !== 'king' && group.rows.length) {
         const state = groups.stateOf(parent.session)
@@ -1793,7 +1801,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
       const inbox = reading?.peer?.inbox() ?? []
       const receipts = reading?.peer?.receipts() ?? []
       const input = redactDeletedBotIds(JSON.stringify({
-        群聊议题: group.brief, 群聊历史: history, 群工作记忆: groupContext, 最新用户消息: text,
+        群聊议题: group.brief, 群聊历史: history, ...(reading?.kingGroups ? { 已有群目录: await reading.kingGroups.directory(signal) } : {}), 群工作记忆: groupContext, 最新用户消息: text,
         ...(inbox.length ? { 定向收件: inbox.map(message => ({
           messageId: message.id, fromId: message.from, from: group.members.find(bot => bot.id === message.from)?.name,
           text: message.text, nonce: message.nonce, sentAt: new Date(message.sentAt).toISOString(), senderTimestamp: message.senderTimestamp,

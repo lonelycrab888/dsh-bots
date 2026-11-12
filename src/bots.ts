@@ -101,7 +101,7 @@ export function selectMembers(ids: string[], library: { readonly maxMembers: num
     return { id: bot.id, name: bot.name, duty: bot.duty, ...(bot.avatar ? { avatar: bot.avatar } : {}), sessionId: previous.find(member => member.id === id)?.sessionId ?? uuid() }
   })
 }
-export interface Plan { tasks: { botId: string; task: string }[]; reply?: string; memoryActions?: unknown; botActions?: unknown; groupAction?: unknown }
+export interface Plan { tasks: { botId: string; task: string }[]; reply?: string; memoryActions?: unknown; botActions?: unknown; groupAction?: unknown; existingGroupAction?: unknown }
 export function discussionTopic(text: string): string | undefined {
   return /^\s*(?:讨论|discuss)\s*[:：]([\s\S]*)$/iu.exec(text)?.[1].trim()
 }
@@ -110,16 +110,18 @@ export function parsePlan(output: string, members: Member[], required: Member[] 
   const source = output.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
   let input: unknown
   try { input = JSON.parse(source) } catch { throw new Error('KingBot 没有返回有效的 JSON。') }
-  const parsed = z.object({ tasks: z.array(z.object({ botId: z.string(), task: z.string().trim().min(1).max(6000) })).max(members.length).default([]), reply: z.string().max(12000).optional(), memoryActions: z.unknown().optional(), botActions: z.unknown().optional(), groupAction: z.unknown().optional() }).safeParse(input)
+  const parsed = z.object({ tasks: z.array(z.object({ botId: z.string(), task: z.string().trim().min(1).max(6000) })).max(members.length).default([]), reply: z.string().max(12000).optional(), memoryActions: z.unknown().optional(), botActions: z.unknown().optional(), groupAction: z.unknown().optional(), existingGroupAction: z.unknown().optional() }).safeParse(input)
   if (!parsed.success) throw new Error('KingBot 的回复格式有误，需要提供任务列表或文字答复')
   const plan = parsed.data
   if (plan.botActions == null || (Array.isArray(plan.botActions) && plan.botActions.length === 0)) delete plan.botActions
   if (plan.groupAction == null) delete plan.groupAction
+  if (plan.existingGroupAction == null) delete plan.existingGroupAction
+  if (plan.existingGroupAction !== undefined && (plan.groupAction !== undefined || plan.botActions !== undefined)) throw new Error('操作已有群不能同时新建群或成员。')
   const ids = plan.tasks.map(task => task.botId)
   if (new Set(ids).size !== ids.length || ids.some(id => !members.some(member => member.id === id))) throw new Error('KingBot 分派了重复或未加入群聊的成员。')
   if (required.length && (required.some(member => !ids.includes(member.id)) || ids.some(id => !required.some(member => member.id === id)))) throw new Error('任务分派必须严格覆盖用户点名的成员。')
   if (ids.length < minTasks) throw new Error('讨论至少需要给两名子 Bot 分派任务。')
-  if (!ids.length && !plan.reply?.trim() && plan.botActions === undefined && plan.groupAction === undefined) throw new Error('KingBot 未提供任务或直接答复。')
+  if (!ids.length && !plan.reply?.trim() && plan.botActions === undefined && plan.groupAction === undefined && plan.existingGroupAction === undefined) throw new Error('KingBot 未提供任务或直接答复。')
   return plan
 }
 
