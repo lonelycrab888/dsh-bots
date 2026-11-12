@@ -6,14 +6,14 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.1`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.2.2`** · **DeepSeek Harness `0.2.2-rc.1`** · Supports Desktop and Web
 
-## New in v0.3.1
+## New in v0.2.2
 
 - **KingBot moderates group chats by default.** It listens to each contribution before choosing the next speaker, asking a follow-up question, or closing the discussion.
 - **Create groups from the dedicated conversation.** KingBot proposes members, suggests new Bots when needed, and waits for confirmation of the destination workspace. For a task, it leads the group and returns the conclusion to the original conversation.
 - **More natural Bot creation.** KingBot accepts conversational batch requests, normalizes separators in names, and skips existing members on retry.
-- **Compatibility with rc.1 and rc.2.** Existing conversations retain their identities, members, and context. An rc.1-specific `v0.2.2` release is also available.
+- **Dedicated rc.1 release.** Existing conversations retain their identities, members, and context. Use `v0.3.1` for a package compatible with both hosts.
 
 ## New in v0.2.1
 
@@ -61,10 +61,10 @@ To upgrade, quit Harness, run `add` against the same profile, then reopen Harnes
 Open **Plugins → Add Plugin**, select the **official npm registry** as the installation source, and paste this Git URL into **Package name or address**:
 
 ```text
-git+https://github.com/lonelycrab888/dsh-bots.git#main
+git+https://github.com/lonelycrab888/dsh-bots.git#v0.2.2
 ```
 
-`#main` installs the package on that branch, which supports both hosts.
+`#v0.2.2` pins the rc.1 release.
 
 **Choose the latest compatible release from the index**
 
@@ -83,7 +83,7 @@ The Git URL locates the plugin; the npm registry supplies its dependencies. If G
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#main'
+dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#v0.2.2'
 dsh web
 ```
 
@@ -105,10 +105,10 @@ Add the generated package to the appropriate profile:
 
 ```sh
 # Desktop (default macOS application path)
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.3.1.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.2.2.tgz"
 
 # Web
-dsh plugin --profile web add "$PWD/dsh-bots-0.3.1.tgz"
+dsh plugin --profile web add "$PWD/dsh-bots-0.2.2.tgz"
 ```
 
 ## Talk to KingBot directly

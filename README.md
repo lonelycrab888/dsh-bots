@@ -6,14 +6,14 @@
 
 `dsh-bots` 为 DeepSeek Harness 添加自定义 Bot 和群聊模式。你可以给成员命名、定义职责、指定模型与思考强度，在原生输入框中描述任务或 `@` 指定成员，并在同一条时间线上查看各 Bot 的署名回复。
 
-**当前版本 `v0.3.1`** · **适用宿主 DeepSeek Harness `0.2.2-rc.1` 与 `0.2.2-rc.2`** · 支持桌面端与 Web
+**当前版本 `v0.2.2`** · **适用宿主 DeepSeek Harness `0.2.2-rc.1`** · 支持桌面端与 Web
 
-## v0.3.1 新增
+## v0.2.2 新增
 
 - **群聊默认由 KingBot 主持**。KingBot 听完上一位成员的发言，再决定邀请谁回应或追问。结论充分时收束，最后汇总。
 - **从专属对话建群**。KingBot 根据任务推荐成员，能力有缺口时建议新 Bot。用户确认成员和普通工作区后才建立群聊。有任务时，KingBot 组织讨论并把结论带回专属对话。
 - **更自然地创建成员**。「这几个助手都帮我建立一下」可批量处理，名称里的分隔符会整理为连字符。重试会认出已有成员并保留原设置。
-- **兼容 rc.1 与 rc.2**。原有可用对话继续使用原会话、成员和上下文。rc.1 也可选择专用的 `v0.2.2` 发行包。
+- **rc.1 专用版**。原有可用对话继续使用原会话、成员和上下文。兼容两个宿主的发行包为 `v0.3.1`。
 
 ## v0.2.1 新增
 
@@ -61,10 +61,10 @@
 打开 **插件 → 添加插件**，将 **安装源** 选为 **npm 官方源**，把下面的 Git 地址粘贴到 **包名或地址**：
 
 ```text
-git+https://github.com/lonelycrab888/dsh-bots.git#main
+git+https://github.com/lonelycrab888/dsh-bots.git#v0.2.2
 ```
 
-`#main` 安装分支上的版本。该分支发布的同一个包同时适配 `rc.1` 与 `rc.2`。
+`#v0.2.2` 固定安装 rc.1 专用版。
 
 **通过索引选择最新兼容发行版**
 
@@ -83,7 +83,7 @@ Git 地址用于获取插件，npm 源用于下载依赖。如果安装日志显
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#main'
+dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#v0.2.2'
 dsh web
 ```
 
@@ -105,10 +105,10 @@ npm pack
 
 ```sh
 # 桌面端（macOS 默认安装路径）
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.3.1.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.2.2.tgz"
 
 # Web 端
-dsh plugin --profile web add "$PWD/dsh-bots-0.3.1.tgz"
+dsh plugin --profile web add "$PWD/dsh-bots-0.2.2.tgz"
 ```
 
 ## 与 KingBot 单独对话
