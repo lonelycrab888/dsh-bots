@@ -6,7 +6,13 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.2`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.3`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+
+## Fixes in v0.3.3
+
+- KingBot prioritizes requests to pause or change direction. It keeps completed replies and asks what to do next, or starts the replacement task the user supplied.
+- A single named Bot replies directly. Naming one Bot during a discussion gives the user's message priority. Each Bot uses its configured identity and role, with chat context scoped to the group.
+- Bots inherit the conversation's Harness tools, including `dsh-tool-fs`, configured web search, and `skill`. Harness loads workspace instructions. A dropped absolute path is saved as a readable document copy.
 
 ## Fixes in v0.3.2
 
@@ -162,13 +168,13 @@ Upgrading does not clear existing Bot definitions or personal memories. If old m
 
 ## How KingBot moderates group chats
 
-Send a message in the group. KingBot selects one speaker at a time, reads the actual response, and decides whom to invite next or when to close. Use `@Architect @Reviewer` to limit participants. With one named Bot, that Bot responds and KingBot summarizes.
+Send a message in the group. KingBot selects one speaker at a time, reads the actual response, and decides whom to invite next or when to close. Use `@Architect @Reviewer` to limit participants. With one named Bot, that Bot responds directly.
 
-To redirect an active discussion, enter a new instruction and use Harness's Steer message action. With the default queue preference, press `Command+Enter` on macOS or `Ctrl+Enter` on Windows and Linux. Plain Enter queues the message. Steering stops the active reply and lets KingBot continue using the new instruction and completed contributions. The native stop control ends the active discussion.
+To redirect an active discussion, enter a new instruction and use Harness's Steer message action. With the default queue preference, press `Command+Enter` on macOS or `Ctrl+Enter` on Windows and Linux. Plain Enter queues the message. Steering stops the active reply and lets KingBot continue using the new instruction and completed contributions. You can also ask KingBot to pause in your own words. It will ask what to do next, or proceed with a concrete replacement task you supplied.
 
 You can start a new task directly in the same group. To continue an earlier discussion, say “Please continue with the previous proposal.” Each member can speak up to twice per discussion. The design draws on Grok Bot's targeted mentions and visible handoffs. [Grok Bot group chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
 
-Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who can inspect the upload. A follow-up on the same topic can reuse its attachments. Each document can be up to 20 MB. Scanned PDFs need text recognition first.
+Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who can inspect the upload. When Desktop inserts an absolute path, the plugin saves a readable copy as an attachment. A follow-up on the same topic can reuse its attachments. Each document can be up to 20 MB. Scanned PDFs need text recognition first. Web search uses the current Harness provider and credentials. Bots can load `SKILL.md` using `skill` and open references with `read`. Harness loads `AGENTS.md` through `dsh-agent-instructions`, with the default limit of 65,536 bytes.
 
 ## Ask KingBot to set up a group and follow through
 

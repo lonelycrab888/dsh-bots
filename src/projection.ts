@@ -17,7 +17,7 @@ const document = z.object({
   }),
 }).transform(value => value as FileBlock)
 const row = z.union([
-  z.object({ id: z.string(), author: z.literal('user'), text: z.string(), continues: z.literal(true).optional(), documents: z.array(document).optional() }),
+  z.object({ id: z.string(), author: z.literal('user'), text: z.string(), continues: z.literal(true).optional(), control: z.literal(true).optional(), documents: z.array(document).optional() }),
   z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional() }),
   z.object({
     id: z.string(), author: z.literal('bot'), botId, text: z.string(),
@@ -49,7 +49,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 9,
+  stateVersion: 10,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {

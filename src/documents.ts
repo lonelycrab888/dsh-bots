@@ -1,4 +1,6 @@
-import { extname } from 'node:path'
+import { constants } from 'node:fs'
+import { open } from 'node:fs/promises'
+import { basename, extname, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FileBlock } from '@deepseek-ai/dsh-llm'
@@ -7,6 +9,58 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 const maxFileBytes = 20 * 1024 * 1024
 const maxDocumentChars = 1_000_000
 const maxToolChars = 12_000
+
+const documentExtensions = new Set([
+  '.docx', '.pdf', '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl',
+  '.xml', '.html', '.htm', '.yaml', '.yml', '.rst', '.log', '.tex',
+])
+
+/** Harness can insert a dropped path as @/path or @"path with spaces". */
+export function localDocumentReferences(message: string): { text: string; paths: string[] } {
+  const paths = new Set<string>()
+  const references = /(^|[\s（(，：、:])@(?:"([^"\r\n]+)"|([^\s"'<>“”，。？！、；）)】]+))/gu
+  const text = message.replace(references, (token: string, boundary: string, quoted?: string, bare?: string) => {
+    const path = quoted ?? bare ?? ''
+    if (!isAbsolute(path)) return token
+    paths.add(path)
+    return boundary
+  }).trim()
+  // Also accept a path pasted as the entire message, including spaces.
+  const whole = text.replace(/^["`]|["`]$/g, '')
+  if (!paths.size && isAbsolute(whole) && !/[\r\n]/.test(whole) && documentExtensions.has(extname(whole).toLowerCase())) {
+    return { text: '', paths: [whole] }
+  }
+  return { text, paths: [...paths] }
+}
+
+export async function admitLocalDocument(ctx: Context, path: string, signal: AbortSignal): Promise<FileBlock> {
+  signal.throwIfAborted()
+  const name = basename(path)
+  if (!documentExtensions.has(extname(name).toLowerCase())) throw new Error(`「${name}」的格式不支持提取文字。可使用文本、Word .docx 或带文字层的 PDF。`)
+  const attachments = ctx.get('attachments')
+  if (!attachments) throw new Error('当前宿主无法保存文档副本。')
+  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK).catch((error: NodeJS.ErrnoException) => {
+    throw new Error(error.code === 'ENOENT' ? `找不到「${name}」。请重新拖入文件。` : `无法打开「${name}」。请检查本地文件的读取权限。`)
+  })
+  try {
+    const stat = await file.stat()
+    if (!stat.isFile()) throw new Error(`「${name}」不是普通文件。`)
+    if (stat.size > maxFileBytes) throw new Error(`「${name}」超过 20 MB，请拆分后发送。`)
+    // The final extra byte detects files that grow between stat and read.
+    const stream = file.createReadStream({ autoClose: false, end: maxFileBytes, signal })
+    const data = (async function* () {
+      let bytes = 0
+      for await (const chunk of stream) {
+        bytes += chunk.length
+        if (bytes > maxFileBytes) throw new Error(`「${name}」超过 20 MB，请拆分后发送。`)
+        yield chunk as Uint8Array
+      }
+    })()
+    return { type: 'file', attachment: await attachments.saveFileStream({ name, data, signal }) }
+  } finally {
+    await file.close()
+  }
+}
 
 async function extractText(name: string, bytes: Buffer, signal: AbortSignal): Promise<string> {
   if (extname(name).toLowerCase() === '.docx') {

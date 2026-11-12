@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 
-export const inject = ['llm']
+export const inject = ['llm', 'web']
 
 class Fixture extends LlmAdapter {
   async listModels() { return [{ id: 'fixture', name: 'Bots fixture' }] }
@@ -16,15 +16,24 @@ class Fixture extends LlmAdapter {
     const systemText = system?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') ?? ''
     const speaker = systemText.match(/你是群聊中的「([^」]+)」/u)?.[1] ?? '默认'
     const role = speaker === 'Bots King' ? 'KingBot' : speaker
-    const input = prompt?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') ?? ''
+    const promptTexts = prompt?.content.flatMap(block => block.type === 'text' ? [block.text] : []) ?? []
+    const input = promptTexts.find(text => !text.startsWith('[File ')) ?? ''
+    const toolResults = prompt ? messages.slice(messages.indexOf(prompt) + 1).filter(message => message.role === 'tool') : []
     const moderator = systemText.includes('你是本场群聊的主持人')
     const discussion = systemText.includes('你正在参加 KingBot 主持的讨论')
+    const addressed = systemText.includes('用户直接点名了你')
+    const intentCheck = systemText.includes('判断群聊用户新消息的语义')
     const latest = input && role !== '默认' ? JSON.parse(input).最新用户消息 : undefined
     let slow = false
-    let documentCall = false
+    let toolCall
     let text = `${role} | ${input.includes('架构说明') ? '看到了架构说明' : '已收到'}`
     if (role === 'KingBot') {
-      if (moderator) {
+      if (intentCheck) {
+        const { 用户新消息: requested } = JSON.parse(latest)
+        text = requested.includes('把时间留给我') ? '{"kind":"pause"}'
+          : requested.includes('换个方向') ? JSON.stringify({ kind: 'redirect', task: requested.split('，').at(-1) })
+          : '{"kind":"continue"}'
+      } else if (moderator) {
         const state = JSON.parse(latest)
         const last = state.已有讨论.at(-1)
         const member = state.本轮可发言.at(-1)
@@ -36,7 +45,7 @@ class Fixture extends LlmAdapter {
           if (!retry) text = '{"kind":"close"}'
           else if (last) text = '我会请其他成员继续讨论。'
         }
-        if (state.议题.includes('验收插话后只核对核心证据')) {
+        if (state.议题.includes('验收插话后只核对核心证据') && !state.已有讨论.length) {
           text = state.上次决定被拒绝 ? '我现在可以请审阅员发言。' : '{"kind":"close"}'
         }
       } else if (systemText.includes('请总结你主持的讨论')) {
@@ -49,11 +58,11 @@ class Fixture extends LlmAdapter {
           evidence,
           duty: name === '资料核对助手' && !latest.includes('上次回复校验失败：') ? '' : '整理并核对合成验收资料',
         })) })
-      } else if (systemText.includes('这是你与用户的专属对话') && /完成离线清单方案|新建空白验收群聊/.test(latest)) {
+      } else if (systemText.includes('这是你与用户的专属对话') && /完成离线清单方案|新建空白验收群聊|新建记忆隔离验收群聊/.test(latest)) {
         const available = JSON.parse(systemText.match(/可用成员：(\[.*?\])。普通工作区：/su)[1])
         const runTask = latest.includes('完成离线清单方案')
         text = JSON.stringify({ tasks: [], groupAction: {
-          title: runTask ? '清单设计讨论' : '空白验收群',
+          title: runTask ? '清单设计讨论' : latest.includes('新建记忆隔离验收群聊') ? '记忆隔离验收群' : '空白验收群',
           topic: runTask ? '完成离线清单方案，比较同步与纯本地方案' : '仅创建群聊',
           memberIds: [available.find(member => member.name === '架构师').id],
           newBots: runTask ? [{ name: '离线方案审阅员', duty: '专门复核离线存储取舍' }] : [],
@@ -65,33 +74,60 @@ class Fixture extends LlmAdapter {
         const required = JSON.parse(systemText.match(/用户点名的成员ID：(\[.*?\])。/su)[1])
         text = JSON.stringify({ tasks: members.filter(member => !required.length || required.includes(member.id)).map(member => ({ botId: member.id, task: '处理用户请求：' + latest })) })
       } else text = 'KingBot | 汇总完成'
-    } else if (discussion) {
-      const state = JSON.parse(latest)
+    } else if (discussion || addressed || role === '默认') {
+      const state = discussion ? JSON.parse(latest) : { 议题: addressed ? latest : input, 已有讨论: [] }
       const last = state.已有讨论.at(-1)
-      slow = role === '架构师' && state.议题.includes('验收实时插话原议题')
-      text = last ? `${role} | 回应 ${last.name}` : `${role} | 初步观点`
-      if (state.议题.includes('验收读取拖入文档')) {
-        const result = messages.findLast(message => message.role === 'tool')
+      slow = role === '架构师' && /验收实时插话原议题|验收暂停原议题|验收语义暂停原议题|验收换任务原议题|验收优先点名原议题/u.test(state.议题)
+      if (addressed || discussion) text = addressed ? `${role} | 直接回复` : last ? `${role} | 回应 ${last.name}` : `${role} | 初步观点`
+      if (state.议题.includes('验收读取拖入文档') || state.议题.includes('验收读取本地引用') || state.议题.includes('验收读取本地 Word 引用')) {
+        const result = toolResults.at(-1)
         if (result) {
           const read = result.content.some(block => block.type === 'text' && block.text.includes('DOCUMENT-CANARY-617'))
           text = read
             ? '## 文档要点\n\n- **已读取** 上传的原文\n\n| 项目 | 值 |\n| --- | --- |\n| 验收编号 | DOCUMENT-CANARY-617 |'
             : '文档读取失败'
         } else {
-          documentCall = tools.some(tool => tool.name === 'read_uploaded_document')
+          const nativePath = promptTexts.join('\n').match(/verbatim read-only copy saved at ("[^"]+")/)?.[1]
+          if (nativePath && state.议题.includes('验收读取拖入文档') && tools.some(tool => tool.name === 'read')) {
+            toolCall = { name: 'read', arguments: JSON.stringify({ file_path: JSON.parse(nativePath) }) }
+          } else if (tools.some(tool => tool.name === 'read_uploaded_document')) {
+            toolCall = { name: 'read_uploaded_document', arguments: '{"number":1}' }
+          }
         }
+      }
+      if (state.议题.includes('验收群记忆隔离')) {
+        const hasGroupFact = messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('GROUP-A-ONLY-496')))
+        text = hasGroupFact ? '本群暗号是 GROUP-A-ONLY-496' : '本群没有收到暗号'
+      }
+      if (state.议题.includes('验收原生 Skill')) {
+        const results = toolResults.map(message => message.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+        if (results.some(result => result.includes('SKILL-REFERENCE-284'))) {
+          text = '已读取 SKILL-REFERENCE-284'
+        } else if (results.some(result => result.includes('references/guide.md'))) {
+          toolCall = { name: 'read', arguments: '{"file_path":".agents/skills/bots-smoke/references/guide.md"}' }
+        } else if (tools.some(tool => tool.name === 'skill')) {
+          toolCall = { name: 'skill', arguments: '{"name":"bots-smoke"}' }
+        }
+      }
+      if (state.议题.includes('验收原生网络搜索')) {
+        const result = toolResults.at(-1)
+        if (result) text = result.content.some(block => block.type === 'text' && block.text.includes('WEB-CANARY-391')) ? '已读取搜索结果 WEB-CANARY-391' : '搜索失败'
+        else if (tools.some(tool => tool.name === 'web_search')) toolCall = { name: 'web_search', arguments: '{"queries":["DSH fixture query"]}' }
       }
     }
     // The host also calls the adapter to generate titles for native conversations.
     if (prompt) {
-      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ role, speaker, input, moderator, discussion,
+      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ role, speaker, input, moderator, discussion, addressed, intentCheck,
         recoveryInstructions: systemText.includes('上一条决定被拒绝') && !systemText.includes('"kind":"close"'),
         seesPreviousTask: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('验收主持恢复'))),
-        tools: (tools ?? []).map(tool => tool.name) }) + '\n')
+        duty: systemText.match(/你的职责是：([^\n]+)/u)?.[1],
+        seesGroupFact: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('GROUP-A-ONLY-496'))),
+        seesWorkspaceInstructions: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('WORKSPACE-INSTRUCTIONS-756'))),
+        calledTool: toolCall?.name, tools: (tools ?? []).map(tool => tool.name) }) + '\n')
     }
     await delay(slow ? 12_000 : 450, undefined, { signal })
-    if (documentCall) {
-      const block = { type: 'tool-call', id: 'fixture-document-1', name: 'read_uploaded_document', arguments: '{"number":1}' }
+    if (toolCall) {
+      const block = { type: 'tool-call', id: `fixture-tool-call-${messages.filter(message => message.role === 'tool').length + 1}`, ...toolCall }
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
       yield { type: 'block-end', index: 0, block }
@@ -107,4 +143,10 @@ class Fixture extends LlmAdapter {
 
 export function apply(ctx) {
   ctx.llm.registerAdapter(['bots-fixture'], new Fixture())
+  ctx.web.registerSearchProvider({
+    id: 'bots-fixture-search',
+    available: () => true,
+    ready: () => true,
+    search: async () => ({ content: 'WEB-CANARY-391', sources: [{ url: 'https://example.com/', title: 'Fixture result' }], truncated: false }),
+  })
 }
