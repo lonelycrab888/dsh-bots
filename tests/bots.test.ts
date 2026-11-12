@@ -41,6 +41,8 @@ test('mention routing handles Chinese punctuation and rejects unknown members', 
   assert.deepEqual(resolveTargets('请协作：@架构师；@审阅员 检查', members), members)
   assert.deepEqual(resolveTargets('联系 test@example.com', members), [])
   assert.deepEqual(resolveTargets('@reviewer @审阅员 检查', members), [members[1]])
+  assert.deepEqual(resolveTargets('请看 @notes.txt @src/ @"review @owner notes.txt" @审阅员.', members), [members[1]])
+  assert.deepEqual(resolveTargets('请看 @README 和 @架构师', members, name => name === 'README'), [members[0]])
   assert.throws(() => resolveTargets('@不存在 检查', members))
 })
 test('legacy discussion prefixes still accept plain topic text', () => {
@@ -82,20 +84,18 @@ test('renaming the coordinator retains the existing session and history boundary
   assert.equal(validateLibrary({ ...fixtureLibrary, bots: [{ ...fixtureLibrary.bots[0], name: 'KingBot' }] }).bots[0].name, 'KingBot')
 })
 
-test('mention insertion recovers empty composer and preserves nonempty drafts', async () => {
-  const { insertMention } = await import('../src/mention.ts')
-  let draft = '', phase = 'plain', notice = ''
-  const current = { focus() {}, setDraft(text: string) { draft = text }, notify(_level: string, text: string) { notice = text }, state: { getSnapshot: () => ({ draft, phase }) } }
-  const rejected = { captureInsertion: () => null, insertText: () => false }
-  insertMention('验收专家', rejected, current)
-  assert.equal(draft, ' @验收专家 ')
-  draft = '已有草稿与引用'
-  insertMention('架构师', rejected, current)
-  assert.equal(draft, '已有草稿与引用')
-  assert.match(notice, /当前草稿已保留/)
-  draft = ''; phase = 'sending'
-  insertMention('架构师', rejected, current)
-  assert.equal(draft, '')
+test('native mention source filters by current group and preserves file-reference searches', async () => {
+  const { groupMentionSource } = await import('../src/mention.ts')
+  const source = groupMentionSource(id => id === 'group' ? { members: [members[0]], rows: [] }
+    : id === 'king' ? { mode: 'king', members: [members[1]], rows: [] } : null, async () => fixtureLibrary)
+  const request = { query: '架构', drilled: false, signal: new AbortController().signal }
+  const [candidate] = await source.candidates({ sessionId: 'group' }, request)
+  assert.deepEqual(candidate, { name: '架构师', section: '群聊成员' })
+  assert.deepEqual(source.onPick({ candidate, action: 'pick' }), { text: '@架构师 ' })
+  assert.deepEqual(await source.candidates({ sessionId: 'group' }, { ...request, query: '审阅' }), [])
+  assert.deepEqual(await source.candidates({ sessionId: 'group' }, { ...request, quoted: true }), [])
+  assert.deepEqual(await source.candidates({ sessionId: 'king' }, request), [])
+  assert.deepEqual(await source.candidates({ sessionId: 'plain' }, request), [])
 })
 
 test('a custom display name takes precedence over a member ID alias', () => {

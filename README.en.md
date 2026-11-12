@@ -6,7 +6,13 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.5`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.6`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+
+## v0.3.6
+
+- Group messages, Markdown, and topic summaries follow the Harness conversation font size immediately. Bot and user bubbles appear on opposite sides, and the topic summary aligns with the composer.
+- The native `@` menu lists **群聊成员** (Group members) first. Filter by name and select with the keyboard or mouse. Files and folders are still available in the same menu.
+- The moderator, subsequent speakers, and the final summary receive complete saved replies, including after a pause or restart.
 
 ## v0.3.5
 
@@ -57,13 +63,13 @@
 
 ## How to use it
 
-<!-- Screenshot placeholder 1: Group chat overview showing the named replies, bottom member bar, and native message box. Suggested path: assets/group-chat.png. -->
+<!-- Screenshot placeholder 1: Group chat overview showing message bubbles, topic summary, and native message box. Suggested path: assets/group-chat.png. -->
 
 1. **Choose the King workspace.** Open **Bots**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
 2. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities, or ask KingBot to create one in its dedicated conversation. A fresh installation shows only **KingBot**, the coordinator, with no preset child Bots. You create all child Bots yourself; KingBot joins every group automatically.
 3. **Start a group chat.** Create a conversation in a workspace other than the dedicated King workspace. Select **群聊** (Group chat) near the message box, choose members, and click **确认成员** (Confirm members). Select **默认** (Default) to use Harness's native conversation behavior.
 4. **Send a task.** Describe your goal and let KingBot moderate. Mention one child Bot for a direct reply or mention several to have KingBot moderate among those members.
-5. **Read the results.** The timeline shows moderator questions, named member replies, and the coordinator's summary in order. Click a member below the timeline to insert a mention. The member bar scrolls horizontally when needed.
+5. **Read the results.** The bubbles show moderator questions, named member replies, and the coordinator's summary. Type `@` in the composer and choose a Bot from **群聊成员** (Group members).
 
 | What you want | Example prompt |
 | --- | --- |
@@ -75,11 +81,11 @@
 
 Create and add the example Bots Architect and Reviewer before mentioning them. With no child Bot mentions, KingBot chooses who to invite from the group.
 
-The group chat fills the available height. The timeline and member bar follow the message box's width, with scrolling inside the timeline. The native **Team, Trajectory, and Context** views remain available.
+The group chat fills the available height. The timeline and topic summary follow the message box's width. The native **Team, Trajectory, and Context** views remain available.
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.5.tgz` from the [v0.3.5 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.5).
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.6.tgz`. [v0.3.6 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.6)
 
 To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
@@ -91,7 +97,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs directly from the main branch. Its v0.3.5 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
+`#main` installs directly from the main branch. Its v0.3.6 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 
@@ -173,7 +179,7 @@ Model and reasoning options come from the host's standard API configuration. Aft
 
 Click **删除** (Delete) on a child Bot card, review the notice, then choose **确认删除** (Confirm deletion). KingBot cannot be deleted.
 
-- Deletion revokes the Bot's dispatch eligibility across all groups and cancels group turns currently running. Existing groups retain historical replies, but no longer offer that Bot in the member bar.
+- Deletion revokes the Bot's dispatch eligibility across all groups and cancels group turns currently running. Existing groups retain historical replies. The `@` menu drops the deleted Bot.
 - On its next execution, KingBot starts a fresh coordination session without injecting group context from before deletion. Retired IDs in personal memory are replaced with “∅” (deleted ID); unrelated preferences remain intact.
 - Recreating the same name generates a new identity. Create a new group and select the new Bot; it does not inherit the deleted Bot's session or identity.
 - Internal retirement records keep old IDs unavailable for reuse. These records are not supplied as the coordinator's memory. Historical logs remain, so “forgetting” means removing IDs from model context and dispatch, not erasing every historical record from disk.

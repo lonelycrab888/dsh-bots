@@ -12,7 +12,7 @@ const root = new URL('../', import.meta.url)
 const { engines } = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 const upgradeFrom = process.env.DSH_BOTS_UPGRADE_FROM
 const oldVersion = upgradeFrom && JSON.parse(execFileSync('tar', ['-xOf', resolve(upgradeFrom), 'package/package.json'], { encoding: 'utf8' })).version
-const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4'].includes(oldVersion)
+const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4', '0.3.5'].includes(oldVersion)
 const oldRoutesThroughKing = legacyRouting || ['0.2.2', '0.3.1', '0.3.2'].includes(oldVersion)
 const dir = await mkdtemp(join(tmpdir(), 'dsh-bots-smoke-'))
 const env = { ...process.env, DSH_HOME: dir }
@@ -60,6 +60,51 @@ async function requests() {
   return (await readFile(requestsPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
 }
 
+function assertCompleteTimeline(calls, topic) {
+  const rounds = calls.filter(call => call.moderator || call.discussion || call.summarizing)
+    .map(call => ({ call, payload: JSON.parse(call.input) }))
+    .map(({ call, payload }) => ({ call, payload, state: JSON.parse(payload.最新用户消息) }))
+    .filter(({ state }) => {
+      const subject = state.议题.replace(/^(?:@[\p{L}\p{N}_-]+[\s，,:：]+)+/u, '')
+      return subject === topic || subject.startsWith(topic + '，')
+    })
+  const checked = entry => {
+    const evidence = entry?.state.已有讨论.find(reply => reply.name === '审阅员' && reply.status === 'done')?.text
+    assert.equal(evidence?.slice(1796, 1801), '20:10')
+    assert.match(evidence, /20:10 交接确认 P036-TIMELINE-END$/u)
+    assert.ok(entry.payload.群聊历史.some(row => row.text === evidence))
+  }
+  checked(rounds.find(({ call, state }) => call.moderator && state.已有讨论.length))
+  checked(rounds.find(({ call, state }) => call.discussion && state.已有讨论.length))
+  checked(rounds.findLast(({ call }) => call.summarizing))
+}
+
+async function exerciseLongReplies() {
+  browser('run-code', (async page => {
+    const button = name => page.getByRole('button', { name, exact: true })
+    await button('搜索会话').click()
+    await page.getByPlaceholder(/搜索会话名称/).fill('给出架构说明')
+    await page.getByRole('treeitem', { name: /群聊 · @架构师 给出架构说明/ }).click()
+    const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+    const log = page.getByRole('log', { name: '群聊时间线' })
+    for (const topic of ['验收长时间轴', '验收长时间轴汇总失败']) {
+      const previous = await log.getByText('20:10 交接确认 P036-TIMELINE-END', { exact: true }).count()
+      await editor.fill(topic)
+      await button('发送消息').click()
+      await log.getByText('20:10 交接确认 P036-TIMELINE-END', { exact: true }).nth(previous).waitFor()
+      await button('停止生成').waitFor({ state: 'hidden' })
+    }
+    await log.getByText(/KingBot 未能生成汇总/).waitFor()
+    await log.getByText(/尚未收到 架构师 的有效回复/).waitFor()
+    if (await log.getByText('20:10 交接确认 P036-TIMELINE-END', { exact: true }).count() < 3) {
+      throw new Error('The summary fallback must retain the end of the original reply')
+    }
+  }).toString())
+  const calls = await requests()
+  assertCompleteTimeline(calls, '验收长时间轴')
+  assertCompleteTimeline(calls, '验收长时间轴汇总失败')
+}
+
 async function savedIdentities() {
   const sessions = join(dir, 'sessions')
   const paths = await readdir(sessions, { recursive: true })
@@ -102,6 +147,7 @@ async function exerciseTaskRecovery(defaultWorkspace) {
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline && !await stat(written).catch(() => undefined)) await delay(100)
   assert.equal(await readFile(written, 'utf8'), 'P1-CHECKPOINT-459')
+  const callsBeforeRestart = (await requests()).length
   await stopHost('SIGKILL')
 
   browser('goto', await startHost())
@@ -174,6 +220,9 @@ async function exerciseTaskRecovery(defaultWorkspace) {
   }
   const calls = await requests()
   assert.equal(calls.filter(call => call.calledTool === 'write' && call.input.includes('验收恢复任务')).length, 1)
+  assertCompleteTimeline(calls, '验收恢复任务')
+  assertCompleteTimeline(calls.slice(callsBeforeRestart), '验收恢复任务')
+  console.log('Verified complete 20:10 entry and tail in member and moderator inputs before and after restart.')
   console.log('Verified interrupted task, one partial delivery, verified resume, and idempotent final delivery after restart.')
 }
 
@@ -267,8 +316,16 @@ try {
     await page.getByRole('region', { name: '群聊', exact: true }).waitFor()
 
     const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
-    await page.getByRole('button', { name: /@架构师/ }).click()
-    await editor.getByText('@架构师').waitFor()
+    if (upgrading) {
+      await page.getByRole('button', { name: /@架构师/ }).click()
+      await editor.getByText('@架构师').waitFor()
+    } else {
+      await editor.and(page.locator('[contenteditable="true"]')).pressSequentially('@')
+      const menu = page.getByRole('listbox').filter({ hasText: '群聊成员' })
+      await menu.getByRole('option', { name: '架构师', exact: true }).click()
+      await editor.getByText('@架构师').waitFor()
+      if (await page.locator('.dsh-bots-members').count()) throw new Error('The roster must not appear above the composer')
+    }
     await editor.and(page.locator('[contenteditable="true"]')).fill('@架构师 给出架构说明')
     await editor.press('Enter')
     const log = page.getByRole('log', { name: '群聊时间线' })
@@ -330,7 +387,7 @@ try {
       await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
       await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
-      await page.getByText('KingBot · 专属对话', { exact: true }).waitFor()
+      await page.getByRole('region', { name: 'KingBot 专属对话', exact: true }).waitFor()
     }
     const workspace = page.getByRole('treeitem', { name: /^(默认工作区|Default workspace)(?:\s|$)/i })
     await workspace.waitFor()
@@ -374,13 +431,13 @@ try {
       await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
       await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
-      await page.getByText('KingBot · 专属对话', { exact: true }).waitFor()
+      await page.getByRole('region', { name: 'KingBot 专属对话', exact: true }).waitFor()
       const log = page.getByRole('log', { name: '群聊时间线' })
       const replies = log.locator('article[data-author=bot] p')
       const send = async text => {
         const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
         await editor.and(page.locator('[contenteditable="true"]')).fill(text)
-        await editor.press('Enter')
+        await page.getByRole('button', { name: /^(发送消息|Send message)$/i }).click()
       }
       await send('方案/流程助手、记录助手你都帮我建立一下')
       await replies.last().filter({ hasText: /已创建.*方案-流程助手/s }).waitFor()
@@ -565,7 +622,7 @@ try {
       await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
       await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
-      await page.getByText('KingBot · 专属对话', { exact: true }).waitFor()
+      await page.getByRole('region', { name: 'KingBot 专属对话', exact: true }).waitFor()
       await send('请新建记忆隔离验收群聊，成员为 @架构师')
       await log.getByText(/建立「记忆隔离验收群」/).waitFor()
       await send('确认建群')
@@ -641,7 +698,10 @@ try {
     const delegated = completed.filter(item => item.moderator && item.input.includes('完成离线清单方案'))
     assert.ok(delegated.length >= 3)
     assert.ok(completed.filter(item => item.moderator || item.intentCheck).every(item => !item.tools.length))
-    if (process.env.DSH_BOTS_RECOVERY_SMOKE === '1') await exerciseTaskRecovery(defaultWorkspace)
+    if (process.env.DSH_BOTS_RECOVERY_SMOKE === '1') {
+      await exerciseLongReplies()
+      await exerciseTaskRecovery(defaultWorkspace)
+    }
     console.log(`Verified natural Bot creation, dynamic discussion, confirmed group placement, and return of results on DSH ${runtime}.`)
   }
 } catch (error) {

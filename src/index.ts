@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-typert-registry'
 import { KING_REMOTE, catalogInput, kingRequest } from './king-remote.ts'
 import { WorkspaceMemory } from './workspace-memory.ts'
 import { realpathSync, existsSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
@@ -44,6 +45,11 @@ declare module '@deepseek-ai/dsh-llm' {
 
 export const name = 'dsh-bots'
 export const inject = ['agents', 'commands', 'sessionProjections', 'sessions', 'sessionPersistence', 'systemPrompt', 'tools', 'settings', 'typert', 'workspaceRegistry']
+
+function workspaceEntry(agent: Agent) {
+  const { cwd } = agent.session.header
+  return (name: string) => !!cwd && existsSync(join(cwd, name))
+}
 
 export async function apply(ctx: Context, config: Config) {
   const groups = await ctx.sessionProjections.register(projection)
@@ -401,7 +407,7 @@ export async function apply(ctx: Context, config: Config) {
     let singleTarget = false
     if (command.includes('@')) {
       try {
-        singleTarget = resolveTargets(command, availableMembers(group, validateLibrary(config.library.get()))).length === 1
+        singleTarget = resolveTargets(command, availableMembers(group, validateLibrary(config.library.get())), workspaceEntry(agent)).length === 1
       } catch { /* Invalid mentions are reported when the message is handled. */ }
     }
     const directRequest = singleTarget && (command.startsWith('@') || !hasControlCue)
@@ -691,7 +697,7 @@ export async function apply(ctx: Context, config: Config) {
     const topic = discussing ? discussionTopic(text) ?? text : text
     let required: Member[]
     try {
-      required = group.mode === 'king' ? [] : resolveTargets(topic, group.members)
+      required = group.mode === 'king' ? [] : resolveTargets(topic, group.members, workspaceEntry(parent))
       if (!topic) throw new Error('请填写要讨论的议题。')
     } catch (error) {
       addRows(parent, [{ id, author: 'user', text: original }, { id: `${id}:notice`, author: 'notice', text: (error as Error).message }])
@@ -879,10 +885,10 @@ export async function apply(ctx: Context, config: Config) {
         ? group.members.filter(member => task!.memberIds!.includes(member.id)) : group.members
       const prior = previousTask ? taskDigest(previousTask, group.rows) : undefined
       const transcript: { botId: string; name: string; question: string; status: string; text: string }[] =
-        prior?.completed.map(item => ({ ...item, status: 'done', text: item.text.slice(0, 1800) })) ?? []
+        prior?.completed.map(item => ({ ...item, status: 'done' })) ?? []
       const invitations = new Map<string, number>()
       if (resuming) for (const item of transcript) invitations.set(item.botId, (invitations.get(item.botId) ?? 0) + 1)
-      const corrections = task ? taskDigest(task, current().rows).user.slice(-6).map(row => row.text.slice(0, 1600)) : undefined
+      const corrections = task ? taskDigest(task, current().rows).user.slice(-6).map(row => row.text) : undefined
       const maxTurns = participants.length === 1 ? 1 : participants.length + 2
       const budget = requestedAction === 'summarize' ? 0 : Math.max(0, maxTurns - (resuming ? transcript.length : 0))
       for (let turn = 0; turn < budget; turn++) {
@@ -940,7 +946,7 @@ export async function apply(ctx: Context, config: Config) {
           { id: rowId, author: 'bot', botId: speaker.id, status: 'working', text: '正在回复…' },
           JSON.stringify({ 议题: subject, KingBot主持提问: step.question, 已有讨论: transcript, ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
           '你正在参加 KingBot 主持的讨论。根据用户最近明确的要求回答，不要重复已完成的操作。针对已有发言补充、质疑或给出依据。可以点名其他成员。只发一条推进讨论的回复。')
-        transcript.push({ botId: speaker.id, name: speaker.name, question: step.question, status: result.status, text: result.text.slice(0, 1800) })
+        transcript.push({ botId: speaker.id, name: speaker.name, question: step.question, status: result.status, text: result.text })
         if (task?.operations.length) break
       }
       const completed = transcript.filter(item => item.status === 'done')
@@ -950,10 +956,10 @@ export async function apply(ctx: Context, config: Config) {
         missing.length && `尚未收到 ${missing.join('、')} 的有效回复，相关观点待补充。`,
         task?.operations.length && '仍有工具操作结果待核对。',
       ].filter(Boolean).join(' ')
-      const excerpts = completed.map(item => `- ${item.name}：${item.text.slice(0, 500)}`).join('\n')
+      const replies = completed.map(item => `**${item.name}**\n\n${item.text}`).join('\n\n')
       await summarize(JSON.stringify({ 议题: subject, 已有讨论: transcript, ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
-        '请总结你主持的讨论，基于实际发言给出结论、明确决定、关键证据和仍待确认的问题。以用户最新确认或更正为准。缺少证据时说明缺口。用简短小标题区分已确认决定、依据和待解决问题。',
-        excerpts ? `KingBot 未能生成完整汇总。已有发言：\n\n${excerpts}` : '本轮还没有可汇总的有效发言。', gaps, requestedAction === 'summarize' || Boolean(task?.operations.length))
+        '请总结你主持的讨论，基于实际发言给出结论、明确决定、关键证据和仍待确认的问题。以用户最新确认或更正为准。将状态为 done 的发言视作已保存原文。只有明确发生生成失败或依据确实缺失时才说明缺口。用简短小标题区分已确认决定、依据和待解决问题。',
+        replies ? `KingBot 未能生成汇总。以下是已收到的发言。\n\n${replies}` : '本轮还没有可汇总的有效发言。', gaps, requestedAction === 'summarize' || Boolean(task?.operations.length))
 
     }
 
@@ -1215,7 +1221,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
         .slice(-12)
         .map(row => ({
           from: row.author === 'bot' ? (row.botId === coordinatorId ? coordinatorName : group.members.find(bot => bot.id === row.botId)?.name) : '用户',
-          text: (row.author === 'user' && row.documents?.length ? localDocumentReferences(row.text).text : row.text).slice(0, 1800),
+          text: row.author === 'user' && row.documents?.length ? localDocumentReferences(row.text).text : row.text,
         }))
       if (startedRevision !== contextRevision()) throw new Error('成员已删除，本轮已取消，请重新发送。')
       child.followup(createUserMessage({

@@ -7,13 +7,13 @@ import { watchActivation } from './lifecycle.ts'
 import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { coordinatorId, coordinatorName, coordinatorDuty, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, availableMembers, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
+import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
 import type { MemoryPage } from './workspace-memory.ts'
 import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
-import { insertMention, type CurrentInput, type InsertionActions } from './mention.ts'
+import { groupMentionSource, type GroupMentionSource } from './mention.ts'
 
-export const inject = ['slots', 'sessions', 'conversation', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager', 'workspaces', 'uiWorkspace', 'remote.directoryPicker']
+export const inject = ['slots', 'sessions', 'inputTriggers', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager', 'workspaces', 'uiWorkspace', 'remote.directoryPicker']
 
 type ProjectionHook = (key: 'dshBots') => Group | null | undefined
 type Choose = (ids: BotId[]) => Promise<void>
@@ -422,11 +422,9 @@ function TaskPanel({ group, choose, source }: {
   </aside>
 }
 
-function GroupTimeline({ useProjection, inputActions, mention, openSession, catalog, chooseGroup, chooseTask }: {
+function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
-  inputActions: InsertionActions
-  mention: (name: string, actions: InsertionActions) => void
   openSession: (id: string) => void
   chooseGroup(id: string, confirm: boolean): Promise<void>
   chooseTask(task: DiscussionTask, action: TaskAction): Promise<void>
@@ -457,17 +455,17 @@ function GroupTimeline({ useProjection, inputActions, mention, openSession, cata
     const element = room.current
     let card: Element | null = null
     let frame = 0
-    const alignMembers = () => {
+    const alignWithComposer = () => {
       if (!card) return
       const bounds = card.getBoundingClientRect()
       const own = element.getBoundingClientRect()
       if (!bounds.width) return
-      element.style.setProperty('--bots-members-width', `${bounds.width}px`)
-      element.style.setProperty('--bots-members-offset', `${bounds.left - own.left - parseFloat(getComputedStyle(element).paddingLeft)}px`)
+      element.style.setProperty('--bots-conversation-width', `${bounds.width}px`)
+      element.style.setProperty('--bots-conversation-offset', `${bounds.left - own.left}px`)
     }
     const resize = new ResizeObserver(() => {
       cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(alignMembers)
+      frame = requestAnimationFrame(alignWithComposer)
     })
     resize.observe(element)
     const sync = () => {
@@ -478,12 +476,12 @@ function GroupTimeline({ useProjection, inputActions, mention, openSession, cata
       element.hidden = !active
       const nextCard = scroll.querySelector('[data-composer-card]')
       if (nextCard !== card) { if (card) resize.unobserve(card); card = nextCard; if (card) resize.observe(card) }
-      alignMembers()
+      alignWithComposer()
     }
     sync()
     const observer = new MutationObserver(sync)
     observer.observe(scroll, { childList: true, subtree: true })
-    return () => { observer.disconnect(); resize.disconnect(); cancelAnimationFrame(frame); element.style.removeProperty('--bots-members-width'); element.style.removeProperty('--bots-members-offset'); scroll.classList.remove('dsh-bots-group-scroll'); marked.forEach(item => item.classList.remove('dsh-bots-layout-chain')); element.hidden = false }
+    return () => { observer.disconnect(); resize.disconnect(); cancelAnimationFrame(frame); element.style.removeProperty('--bots-conversation-width'); element.style.removeProperty('--bots-conversation-offset'); scroll.classList.remove('dsh-bots-group-scroll'); marked.forEach(item => item.classList.remove('dsh-bots-layout-chain')); element.hidden = false }
   }, [!!group])
   const timeline = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
@@ -492,20 +490,7 @@ function GroupTimeline({ useProjection, inputActions, mention, openSession, cata
     if (log && follow.current) log.scrollTop = log.scrollHeight
   }, [group?.rows])
   if (!group) return null
-  const members = library ? availableMembers(group, library) : []
-  const coordinatorMention = members.some(member => isCoordinatorName(member.name)) ? '主Bot' : coordinatorName
-
-  return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
-    <div className="dsh-bots-members">
-      <strong>{group.mode==='king'?'KingBot · 专属对话':'群聊'}</strong>
-      {[...(group.coordinator ? [{ ...group.coordinator, name: coordinatorName, duty: coordinatorDuty }] : []), ...members].map(member => <button key={member.id} type="button"
-        title={member.duty} onPointerDown={event => event.preventDefault()} onClick={() => {
-          mention(member.id === coordinatorId ? coordinatorMention : member.name, inputActions)
-        }}>
-        <Avatar id={member.id} name={member.name} avatar={library?.bots.find(bot => bot.id === member.id)?.avatar ?? member.avatar} />
-        @{member.id === coordinatorId ? coordinatorMention : member.name}
-      </button>)}
-    </div>
+  return <section ref={room} className="dsh-bots dsh-bots-room" aria-label={group.mode === 'king' ? 'KingBot 专属对话' : '群聊'}>
     {group.mode !== 'king' && <TaskPanel group={group} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
       row?.scrollIntoView({ block: 'nearest' })
@@ -524,10 +509,11 @@ function GroupTimeline({ useProjection, inputActions, mention, openSession, cata
               ? <p key={row.id} role="status" className="dsh-bots-hint">{row.text} <button type="button" onClick={() => openSession(row.sessionId!)}>打开群聊</button></p>
               : <p key={row.id} role="status" className={row.tone === 'info' ? 'dsh-bots-hint' : 'dsh-bots-error'}>{row.text}</p>
             const bot = row.author === 'bot' ? (row.botId === coordinatorId ? { id: coordinatorId, name: coordinatorName } : group.members.find(member => member.id === row.botId)) : undefined
+            const name = row.author === 'user' ? '你' : bot?.name ?? 'Bot'
             return <article key={row.id} className="dsh-bots-message" data-author={row.author} data-row-id={row.id} tabIndex={-1}>
-              <Avatar id={bot?.id} name={bot?.name ?? '你'} avatar={library?.bots.find(item => item.id === bot?.id)?.avatar ?? (bot && 'avatar' in bot ? bot.avatar : undefined)} />
-              <div>
-                <strong>{bot?.name ?? '你'}</strong>
+              <Avatar id={bot?.id} name={name} avatar={library?.bots.find(item => item.id === bot?.id)?.avatar ?? (bot && 'avatar' in bot ? bot.avatar : undefined)} />
+              <div className="dsh-bots-bubble">
+                <strong>{name}</strong>
                 {row.author === 'bot' && row.status === 'done'
                   ? <MarkdownReply text={row.text} />
                   : <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
@@ -560,9 +546,9 @@ interface ClientContext {
   sessions: {
     create(input:{workspaceId:string}):Promise<string>
     binding(id: string): {
-      ctx: unknown
       session: {
         getSnapshot(): { blank: boolean }
+        projections: { faceOf(key: 'dshBots'): { getSnapshot(): Group | null | undefined } }
       }
     } | undefined
   }
@@ -581,9 +567,7 @@ interface ClientContext {
       { ok: true; value?: { result: { kind: 'error' | 'success'; text?: string } } }
       | { ok: false; error: { message: string } }>
   } }
-  conversation: {
-    input: { for(ctx: unknown): CurrentInput }
-  }
+  inputTriggers: { registerSource(source: GroupMentionSource): () => void }
 }
 
 // A package's browser module can outlive its host bundle. Own all visual effects
@@ -675,6 +659,10 @@ function mountClient(ctx: ClientContext) {
     document.head.append(style)
     return () => style.remove()
   })
+  ctx.effect(() => ctx.inputTriggers.registerSource(groupMentionSource(
+    sessionId => ctx.sessions.binding(sessionId)?.session.projections.faceOf('dshBots').getSnapshot(),
+    async () => (await catalog.load()).library,
+  )))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist', id: 'dsh-bots', order: 15, label: () => 'Bots 定义',
   }, BotsIcon))
@@ -707,10 +695,6 @@ function mountClient(ctx: ClientContext) {
         const result = await ctx.remote.dshBots.manage(sessionId, { action: confirm ? 'confirm-group' : 'cancel-group', confirmationId })
         if (!result.ok) throw new Error(result.error.message)
         if (result.value.kind === 'error') throw new Error(result.value.text)
-      },
-      mention(name: string, actions: InsertionActions) {
-        const binding = ctx.sessions.binding(sessionId)
-        if (binding) insertMention(name, actions, ctx.conversation.input.for(binding.ctx))
       },
     }),
   }, GroupTimeline))

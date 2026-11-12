@@ -6,6 +6,12 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 export const inject = ['llm', 'web', 'workspaceRegistry']
 
+const timelineReply = ('审阅员 | 初步观点\n\n' +
+  '| 时间 | 资料 |\n| --- | --- |\n| 19:00 | ' + '演练资料 '.repeat(20) + '|\n\n' +
+  '\x60\x60\x60text\n' + 'exercise-checkpoint-'.repeat(18) + '\n\x60\x60\x60\n\n' +
+  Array.from({ length: 25 }, (_, index) => `- 19:${String(index).padStart(2, '0')} 核对演练条目和材料状态\n`).join(''))
+  .padEnd(1794, '核') + '\n\n20:10 交接确认 P036-TIMELINE-END'
+
 class Fixture extends LlmAdapter {
   async listModels(provider) { return [{ provider, id: 'fixture', name: 'Bots fixture' }] }
   async resolveModel(provider, model) { return { provider, id: model, name: model } }
@@ -22,6 +28,7 @@ class Fixture extends LlmAdapter {
     const moderator = systemText.includes('你是本场群聊的主持人')
     const discussion = systemText.includes('你正在参加 KingBot 主持的讨论')
     const addressed = systemText.includes('用户直接点名了你')
+    const summarizing = systemText.includes('请总结你主持的讨论')
     const intentCheck = systemText.includes('判断群聊用户新消息的语义')
     const latest = input && role !== '默认' ? JSON.parse(input).最新用户消息 : undefined
     let slow = false
@@ -41,7 +48,8 @@ class Fixture extends LlmAdapter {
         const member = state.本轮可发言.at(-1)
         text = JSON.stringify(state.允许收束 && state.已有讨论.length >= 3
           ? { kind: 'close' }
-          : { kind: 'speak', botId: member.id, question: last ? `请回应 ${last.name} 的“${last.text}”` : '先提出一个可检验的建议' })
+          : { kind: 'speak', botId: member.id, question: last ? `请回应 ${last.name} 的意见` : '先提出一个可检验的建议' })
+        if (state.议题.includes('验收长时间轴') && state.允许收束) text = '{"kind":"close"}'
         if (state.议题.includes('验收主持恢复') && state.已有讨论.length <= 1) {
           const retry = state.上次决定被拒绝 !== undefined
           if (!retry) text = '{"kind":"close"}'
@@ -55,8 +63,9 @@ class Fixture extends LlmAdapter {
         if (state.议题.includes('验收插话后只核对核心证据') && !state.已有讨论.length) {
           text = state.上次决定被拒绝 ? '我现在可以请审阅员发言。' : '{"kind":"close"}'
         }
-      } else if (systemText.includes('请总结你主持的讨论')) {
+      } else if (summarizing) {
         text = 'KingBot | 讨论汇总完成'
+        if (JSON.parse(latest).议题.includes('验收长时间轴汇总失败')) failure = '测试汇总模型失败'
       } else if (systemText.includes('这是你与用户的专属对话') && /方案\/流程助手|资料核对助手|方法论\/实验设计助手|这几个都帮我建立一下|额度验收助手/.test(latest)) {
         const evidence = latest.replace(/^原始请求：/, '').split('\n上次回复校验失败：')[0]
         const names = evidence.includes('额度验收助手') ? ['额度验收助手甲', '额度验收助手乙'] : evidence.includes('方案/流程助手') ? ['方案/流程助手', '记录助手']
@@ -100,6 +109,16 @@ class Fixture extends LlmAdapter {
         }
       }
       if (addressed || discussion) text = addressed ? `${role} | 直接回复` : last ? `${role} | 回应 ${last.name}` : `${role} | 初步观点`
+      if (addressed && state.议题.includes('P036-DRAFT')) {
+        const result = toolResults.at(-1)
+        if (result?.content.some(block => block.type === 'text' && block.text.includes('P1-CHECKPOINT-459'))) {
+          text += '\n\n已读取原生文件引用 P1-CHECKPOINT-459'
+        } else if (!result && tools.some(tool => tool.name === 'read')) {
+          toolCall = { name: 'read', arguments: '{"file_path":"p1-pending-write.txt"}' }
+        }
+      }
+      if (discussion && /验收长时间轴|验收恢复任务/u.test(state.议题) && role === '审阅员' && !last) text = timelineReply
+      if (discussion && state.议题.includes('验收长时间轴汇总失败') && role === '架构师') failure = '测试成员生成失败'
       if (state.议题.includes('验收首次主持故障') && role === '审阅员') failure = '等待该成员回复超时。'
       if (state.议题.includes('验收多附件')) {
         const results = toolResults.flatMap(result => result.content).filter(block => block.type === 'text').map(block => block.text)
@@ -146,7 +165,7 @@ class Fixture extends LlmAdapter {
     }
     // The host also calls the adapter to generate titles for native conversations.
     if (prompt) {
-      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ role, speaker, input, moderator, discussion, addressed, intentCheck,
+      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ role, speaker, input, moderator, discussion, addressed, summarizing, intentCheck,
         recoveryInstructions: systemText.includes('上一条决定被拒绝') && !systemText.includes('"kind":"close"'),
         seesPreviousTask: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('验收主持恢复'))),
         duty: systemText.match(/你的职责是：([^\n]+)/u)?.[1],

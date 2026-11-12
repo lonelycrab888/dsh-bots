@@ -1,25 +1,42 @@
-export interface InsertionActions { captureInsertion(): unknown; insertText(text: string, span: unknown): boolean }
-export interface CurrentInput {
-  focus(): void
-  setDraft(text: string): void
-  notify(level: 'info' | 'error', text: string): void
-  state: { getSnapshot(): { draft: string; phase: string } }
+import { availableMembers, coordinatorName, isCoordinatorName, normalizeName, type Group, type Library } from './bots.ts'
+
+interface MentionSession { sessionId: string }
+interface MentionCandidate { name: string; section: string }
+
+export interface GroupMentionSource {
+  trigger: '@'
+  name: string
+  order: number
+  showGroupTitle: false
+  candidates(session: MentionSession, request: {
+    query: string; quoted?: boolean; drilled: boolean; signal: AbortSignal
+  }): Promise<MentionCandidate[]>
+  onPick(pick: { candidate: MentionCandidate; action: 'pick' | 'drill' }): { text: string } | undefined
 }
-/** An initial conversation can replace its composer when the first turn ends.
- * Recover a refused insertion into an empty current editor without replacing
- * a user's text or reference chips in a nonempty draft. */
-export function insertMention(name: string, actions: InsertionActions, current: CurrentInput): void {
-  const text = ` @${name} `
-  if (actions.insertText(text, actions.captureInsertion())) {
-    current.focus()
-    return
-  }
-  const snapshot = current.state.getSnapshot()
-  if (snapshot.draft === '' && snapshot.phase === 'plain') {
-    current.setDraft(text)
-    current.focus()
-  } else {
-    current.focus()
-    current.notify('info', `请在输入框中输入 @${name}；当前草稿已保留。`)
+
+export function groupMentionSource(
+  groupOf: (sessionId: string) => Group | null | undefined,
+  loadLibrary: () => Promise<Library>,
+): GroupMentionSource {
+  return {
+    trigger: '@',
+    name: 'dsh-bots-members',
+    order: -100,
+    showGroupTitle: false,
+    async candidates({ sessionId }, { query, quoted, drilled, signal }) {
+      const group = groupOf(sessionId)
+      if (!group || group.mode === 'king' || quoted || drilled || /[/\\]/u.test(query)) return []
+      const library = await loadLibrary()
+      if (signal.aborted) return []
+      const members = availableMembers(group, library)
+      const names = members.map(member => member.name)
+      if (group.coordinator) names.unshift(names.some(isCoordinatorName) ? '主Bot' : coordinatorName)
+      const needle = normalizeName(query.trim())
+      return names.filter(name => normalizeName(name).includes(needle))
+        .map(name => ({ name, section: '群聊成员' }))
+    },
+    onPick({ candidate, action }) {
+      if (action === 'pick') return { text: '@' + candidate.name + ' ' }
+    },
   }
 }

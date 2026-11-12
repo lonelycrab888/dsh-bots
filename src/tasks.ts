@@ -131,10 +131,10 @@ export function modelTopic(task: DiscussionTask, rows: readonly Row[]): string {
   const digest = taskDigest(task, rows)
   return JSON.stringify({
     原始目标: task.goal,
-    最近用户要求: digest.user.slice(-6).map(row => ({ 原文: row.text.slice(0, 1100), 来源: row.id })),
-    约束: digest.constraints.slice(-8).map(row => row.text.slice(0, 900)),
-    用户确认和更正: digest.decisions.slice(-8).map(row => row.text.slice(0, 900)),
-    已保存汇总: digest.result?.text.slice(0, 3800),
+    最近用户要求: digest.user.slice(-6).map(row => ({ 原文: row.text, 来源: row.id })),
+    约束: digest.constraints.slice(-8).map(row => row.text),
+    用户确认和更正: digest.decisions.slice(-8).map(row => row.text),
+    已保存汇总: digest.result?.text,
     待解决问题: digest.questions.slice(-6),
     附件: digest.documents.map(file => file.attachment.name),
     待核对操作: task.operations.map(({ bot, tool, target }) => ({ bot, tool, target })),

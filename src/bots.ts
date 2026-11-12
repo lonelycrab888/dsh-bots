@@ -70,8 +70,12 @@ export type Row =
 export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string; tasks?: DiscussionTask[]; activeTaskId?: string; confirmation?: { id: string; ready: boolean; task?: string } }
 
 /** An empty result asks the coordinator to select members. */
-export function resolveTargets(text: string, members: readonly Member[]): Member[] {
-  const tokens = Array.from(text.replace(/@Bots\s+King(?=$|[\s，。？！、,:：;；!?])/giu, '@主Bot').matchAll(/(?:^|[\s，。？！、,:：;；!?])@([\p{L}\p{N}_-]+)/gu), match => match[1])
+export function resolveTargets(text: string, members: readonly Member[], isWorkspaceEntry?: (name: string) => boolean): Member[] {
+  // The native composer serializes file references as @path or @"path with spaces".
+  // A dot or slash inside the token must not turn its prefix into a Bot name.
+  const unquoted = text.replace(/@"[^"\r\n]+"/gu, ' ')
+    .replace(/@Bots\s+King(?=$|[\s，。？！、,:：;；!?])/giu, '@主Bot')
+  const tokens = Array.from(unquoted.matchAll(/(?:^|[\s（(【\[，。？！、,:：;；!?])@([\p{L}\p{N}_-]+)(?=$|[\s）)】\]，。？！、,:：;；!?]|\.(?=$|\s))/gu), match => match[1])
   const result = new Set<Member>()
   for (const token of tokens) {
     const name = normalizeName(token)
@@ -79,6 +83,7 @@ export function resolveTargets(text: string, members: readonly Member[]): Member
     const namedMember = members.find(candidate => normalizeName(candidate.name) === name)
     if (!namedMember && isCoordinatorName(token)) continue
     const member = namedMember ?? members.find(candidate => candidate.id === token.toLowerCase())
+    if (!member && isWorkspaceEntry?.(token)) continue
     if (!member) throw new Error(`@${token} 不在当前群聊。请点名已加入的 Bot。`)
     result.add(member)
   }
