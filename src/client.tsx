@@ -1,7 +1,9 @@
 import type { ResetOptions, PendingReset } from './reset.ts'
 import { KING_REMOTE } from './king-remote.ts'
 import { watchActivation } from './lifecycle.ts'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { coordinatorId, coordinatorName, coordinatorDuty, isCoordinatorName, validateLibrary, deleteBot, availableMembers, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
 import type { MemoryPage } from './workspace-memory.ts'
@@ -305,6 +307,21 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
   </div>
 }
 
+const markdownPlugins = [remarkGfm]
+const markdownComponents = {
+  img: ({ alt }: { alt?: string }) => alt ? <span>{alt}</span> : null,
+  a: ({ href, children }: React.ComponentProps<'a'>) => (
+    <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+  ),
+}
+const MarkdownReply = memo(function MarkdownReply({ text }: { text: string }) {
+  // Some models wrap an entire formatted answer in an md fence.
+  const body = /^\s*```(?:md|markdown)[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(text)?.[1] ?? text
+  const formatted = /(?:^|\n)[ \t]{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|[>|]|```|~~~)|(?:\*\*|__|~~|`)[^\n]+|\[[^\]]+\]\(|[*_][^*_\n]+[*_]/.test(body)
+  if (!formatted) return <p>{body}</p>
+  return <div className="dsh-bots-markdown"><Markdown skipHtml remarkPlugins={markdownPlugins} components={markdownComponents}>{body}</Markdown></div>
+})
+
 function GroupTimeline({ useProjection, inputActions, mention, openSession, catalog }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
@@ -398,15 +415,22 @@ function GroupTimeline({ useProjection, inputActions, mention, openSession, cata
           {group.rows.map(row => {
             if (row.author === 'notice') return row.sessionId
               ? <p key={row.id} role="status" className="dsh-bots-hint">{row.text} <button type="button" onClick={() => openSession(row.sessionId!)}>打开群聊</button></p>
-              : <p key={row.id} role="status" className="dsh-bots-error">{row.text}</p>
+              : <p key={row.id} role="status" className={row.tone === 'info' ? 'dsh-bots-hint' : 'dsh-bots-error'}>{row.text}</p>
             const bot = row.author === 'bot' ? (row.botId === coordinatorId ? { id: coordinatorId, name: coordinatorName } : group.members.find(member => member.id === row.botId)) : undefined
             return <article key={row.id} className="dsh-bots-message" data-author={row.author}>
               <span className="dsh-bots-avatar" data-bot={bot?.id}>{bot?.name[0] ?? '你'}</span>
               <div>
                 <strong>{bot?.name ?? '你'}</strong>
-                <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
-                  {row.author === 'bot' && row.status === 'working' ? row.text || '正在回复…' : row.text}
-                </p>
+                {row.author === 'bot' && row.status === 'done'
+                  ? <MarkdownReply text={row.text} />
+                  : <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
+                      {row.author === 'bot' && row.status === 'working' ? row.text || '正在回复…' : row.text}
+                    </p>}
+                {row.author === 'user' && !!row.documents?.length && (
+                  <ul className="dsh-bots-attachments" aria-label="文档附件">
+                    {row.documents.map(({ attachment }, index) => <li key={index}>{attachment.name}</li>)}
+                  </ul>
+                )}
               </div>
             </article>
           })}

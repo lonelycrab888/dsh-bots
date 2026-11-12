@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { FileBlock } from '@deepseek-ai/dsh-llm'
 import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-projection/types'
@@ -7,9 +8,17 @@ import { groupProposalSchema, type GroupProposal } from './group-creation.ts'
 
 const botId = z.string()
 const member = z.object({ id: botId, name: z.string(), duty: z.string(), sessionId: z.string(), contextWorkspace: z.string().optional(), contextRevision: z.number().int().nonnegative().optional(), historyStart: z.number().int().nonnegative().optional() })
+const document = z.object({
+  type: z.literal('file'),
+  attachment: z.object({
+    attachmentId: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    name: z.string(),
+    bytes: z.number().int().nonnegative(),
+  }),
+}).transform(value => value as FileBlock)
 const row = z.union([
-  z.object({ id: z.string(), author: z.literal('user'), text: z.string() }),
-  z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional() }),
+  z.object({ id: z.string(), author: z.literal('user'), text: z.string(), continues: z.literal(true).optional(), documents: z.array(document).optional() }),
+  z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional() }),
   z.object({
     id: z.string(), author: z.literal('bot'), botId, text: z.string(),
     status: z.enum(['working', 'done', 'error', 'stopped']),
@@ -40,7 +49,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 7,
+  stateVersion: 9,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {

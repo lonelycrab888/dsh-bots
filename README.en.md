@@ -6,7 +6,14 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.1`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.2`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+
+## Fixes in v0.3.2
+
+- If KingBot tries to close a discussion early, it retries with the current list of eligible speakers. If the retry is unusable, an eligible Bot contributes and KingBot moderates the next exchange.
+- Harness's steer action interrupts the active group reply and carries completed contributions into the next discussion.
+- New tasks in the same group start with their own context. Explicit follow-ups retain the relevant discussion.
+- Bots can read uploaded text files, Word (.docx), and PDFs with a text layer. The timeline renders Markdown headings, lists, tables, and code blocks.
 
 ## New in v0.3.1
 
@@ -157,7 +164,11 @@ Upgrading does not clear existing Bot definitions or personal memories. If old m
 
 Send a message in the group. KingBot selects one speaker at a time, reads the actual response, and decides whom to invite next or when to close. Use `@Architect @Reviewer` to limit participants. With one named Bot, that Bot responds and KingBot summarizes.
 
-Each member can speak up to twice per discussion. Use the native stop control to cancel. A new message can continue an interrupted discussion after restart. The design draws on Grok Bot's targeted mentions and visible handoffs. [Grok Bot group chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
+To redirect an active discussion, enter a new instruction and use Harness's Steer message action. With the default queue preference, press `Command+Enter` on macOS or `Ctrl+Enter` on Windows and Linux. Plain Enter queues the message. Steering stops the active reply and lets KingBot continue using the new instruction and completed contributions. The native stop control ends the active discussion.
+
+You can start a new task directly in the same group. To continue an earlier discussion, say “Please continue with the previous proposal.” Each member can speak up to twice per discussion. The design draws on Grok Bot's targeted mentions and visible handoffs. [Grok Bot group chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
+
+Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who can inspect the upload. A follow-up on the same topic can reuse its attachments. Each document can be up to 20 MB. Scanned PDFs need text recognition first.
 
 ## Ask KingBot to set up a group and follow through
 

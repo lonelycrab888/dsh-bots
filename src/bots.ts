@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { FileBlock } from '@deepseek-ai/dsh-llm'
 
 export const coordinatorId = 'coordinator'
 export const coordinatorName = 'KingBot'
@@ -48,8 +49,8 @@ export function validateLibrary(value: unknown): Library {
 }
 export interface Member { id: BotId; name: string; duty: string; sessionId: string; contextWorkspace?: string; contextRevision?: number; historyStart?: number }
 export type Row =
-  | { id: string; author: 'user'; text: string }
-  | { id: string; author: 'notice'; text: string; sessionId?: string }
+  | { id: string; author: 'user'; text: string; continues?: true; documents?: FileBlock[] }
+  | { id: string; author: 'notice'; text: string; sessionId?: string; tone?: 'info' }
   | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' }
 export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string }
 

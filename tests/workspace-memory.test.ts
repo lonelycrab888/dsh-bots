@@ -30,6 +30,8 @@ test('memory edits use revisions, archive prevents recall, pinned entries surviv
     const entry=store.edit({text:'论文项目代号 PAPER-451',pinned:true},store.revision())
     const revision=store.revision()
     assert(store.recall('无关问题',defaultMemory).state.entries.some(item=>item.id===entry.id))
+    assert.deepEqual(store.recall('周末烤面包', defaultMemory, 'topic').state.entries, [])
+    assert(store.recall('论文项目', defaultMemory, 'topic').state.entries.some(item => item.id === entry.id))
     store.edit({id:entry.id,archived:true},revision)
     assert.throws(()=>store.edit({id:entry.id,text:'旧窗口覆盖'},revision))
     assert(!store.recall('PAPER-451',defaultMemory).state.entries.some(item=>item.id===entry.id))

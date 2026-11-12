@@ -81,15 +81,17 @@ export class WorkspaceMemory {
     const active = Number((this.db.prepare('SELECT count(*) AS n FROM memories WHERE archived=0').get() as { n: number }).n)
     return { entries, total, active, revision: this.revision(), path: this.path }
   }
-  recall(query: string, settings: Pick<KingMemory,'enabled'|'autoRemember'>): { state: KingMemory; revision: number } {
+  recall(query: string, settings: Pick<KingMemory,'enabled'|'autoRemember'>, scope: 'personal' | 'topic' = 'personal'): { state: KingMemory; revision: number } {
     if (!settings.enabled) return { state: { ...settings, entries: [] }, revision: this.revision() }
     const tokens = searchTokens(query).slice(0, 48)
-    const pinned = this.db.prepare('SELECT payload FROM memories WHERE archived=0 AND pinned=1 ORDER BY updated DESC LIMIT 8').all() as { payload: string }[]
+    const pinned = scope === 'topic' ? [] : this.db.prepare('SELECT payload FROM memories WHERE archived=0 AND pinned=1 ORDER BY updated DESC LIMIT 8').all() as { payload: string }[]
     const matches = tokens.length ? this.db.prepare('SELECT m.payload FROM recall JOIN memories m ON m.id=recall.id WHERE recall MATCH ? AND m.archived=0 ORDER BY bm25(recall),m.updated DESC LIMIT 16').all(tokens.map(token => '"'+token+'"').join(' OR ')) as { payload: string }[] : []
-    const recent = this.db.prepare('SELECT payload FROM memories WHERE archived=0 ORDER BY updated DESC LIMIT 6').all() as { payload: string }[]
+    const recent = scope === 'topic' ? [] : this.db.prepare('SELECT payload FROM memories WHERE archived=0 ORDER BY updated DESC LIMIT 6').all() as { payload: string }[]
+    const queryTokens = new Set(tokens)
     const entries: MemoryEntry[] = []; const ids = new Set<string>(); let chars = 0
     for (const row of [...pinned,...matches,...recent]) {
       const entry = JSON.parse(row.payload) as MemoryEntry
+      if (scope === 'topic' && searchTokens(entry.text).filter(token => queryTokens.has(token)).length < 2) continue
       if (ids.has(entry.id) || chars + entry.text.length > 9000) continue
       ids.add(entry.id); entries.push(entry); chars += entry.text.length
     }
