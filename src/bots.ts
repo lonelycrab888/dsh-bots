@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { botAvatars, fillAvatars, type BotAvatar } from './avatars.ts'
+import type { DiscussionTask } from './tasks.ts'
 import type { FileBlock } from '@deepseek-ai/dsh-llm'
 
 export const coordinatorId = 'coordinator'
@@ -20,6 +22,7 @@ const definition = z.object({
     .regex(/^[\p{L}\p{N}_-]+$/u, '名称仅支持中英文、数字、下划线和连字符'),
   duty: z.string().trim().min(1, '请填写职责').max(6000, '职责最多 6000 个字符'),
   model: botModelSchema.optional(),
+  avatar: z.enum(botAvatars).optional(),
   archived: z.boolean().default(false),
 })
 export const librarySchema = z.object({
@@ -47,12 +50,24 @@ export function validateLibrary(value: unknown): Library {
   if (!parsed.success) throw new Error(parsed.error.issues.map(issue => issue.message).join('；'))
   return parsed.data
 }
-export interface Member { id: BotId; name: string; duty: string; sessionId: string; contextWorkspace?: string; contextRevision?: number; historyStart?: number }
+export const maxChildBots = 20
+
+export function updateLibrary(previous: Library, value: unknown): Library {
+  const next = validateLibrary(value)
+  const old = new Map(previous.bots.map(bot => [bot.id, bot]))
+  const added = next.bots.filter(bot => !old.has(bot.id)).length
+  const retained = next.bots.length - added
+  const available = Math.max(0, maxChildBots - retained)
+  if (added > available) throw new Error(`子 Bot 上限为 ${maxChildBots} 个（含已停用成员），剩余 ${available} 个名额。`)
+  return { ...next, bots: fillAvatars(next.bots.map(bot => ({ ...bot, avatar: old.get(bot.id)?.avatar }))) }
+}
+
+export interface Member { id: BotId; name: string; duty: string; avatar?: BotAvatar; sessionId: string; contextWorkspace?: string; contextRevision?: number; historyStart?: number }
 export type Row =
   | { id: string; author: 'user'; text: string; continues?: true; control?: true; documents?: FileBlock[] }
-  | { id: string; author: 'notice'; text: string; sessionId?: string; tone?: 'info' }
-  | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' }
-export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string; confirmation?: { id: string; ready: boolean; task?: string } }
+  | { id: string; author: 'notice'; text: string; sessionId?: string; tone?: 'info'; taskLink?: string }
+  | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped'; taskId?: string; resultKind?: 'partial' | 'final'; sessionId?: string }
+export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string; tasks?: DiscussionTask[]; activeTaskId?: string; confirmation?: { id: string; ready: boolean; task?: string } }
 
 /** An empty result asks the coordinator to select members. */
 export function resolveTargets(text: string, members: readonly Member[]): Member[] {
@@ -76,7 +91,7 @@ export function selectMembers(ids: string[], library: { readonly maxMembers: num
   return ids.map(id => {
     const bot = library.bots.find(bot => bot.id === id && !bot.archived)
     if (!bot) throw new Error('所选 Bot 已停用或不存在，请重新选择。')
-    return { id: bot.id, name: bot.name, duty: bot.duty, sessionId: previous.find(member => member.id === id)?.sessionId ?? uuid() }
+    return { id: bot.id, name: bot.name, duty: bot.duty, ...(bot.avatar ? { avatar: bot.avatar } : {}), sessionId: previous.find(member => member.id === id)?.sessionId ?? uuid() }
   })
 }
 export interface Plan { tasks: { botId: string; task: string }[]; reply?: string; memoryActions?: unknown; botActions?: unknown; groupAction?: unknown }
@@ -188,7 +203,7 @@ export function createRequestedBots(library: Library, raw: unknown, user: string
     }
     pending.set(key, other ?? { name, duty })
   }
-  if (library.bots.length + pending.size > 100) throw new Error('Bot 定义库最多保存 100 个成员（含已停用成员），请先清理不再使用的成员')
-  const created = Array.from(pending.values(), bot => ({ ...bot, id: `bot-${uuid()}`, archived: false }))
-  return { library: validateLibrary({ ...library, bots: [...library.bots, ...created] }), created, existing: [...existing], conflicts: [...conflicts.values()] }
+  const pendingBots = Array.from(pending.values(), bot => ({ ...bot, id: `bot-${uuid()}`, archived: false }))
+  const updated = updateLibrary(library, { ...library, bots: [...library.bots, ...pendingBots] })
+  return { library: updated, created: updated.bots.slice(library.bots.length), existing: [...existing], conflicts: [...conflicts.values()] }
 }

@@ -4,10 +4,10 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 
-export const inject = ['llm', 'web']
+export const inject = ['llm', 'web', 'workspaceRegistry']
 
 class Fixture extends LlmAdapter {
-  async listModels() { return [{ id: 'fixture', name: 'Bots fixture' }] }
+  async listModels(provider) { return [{ provider, id: 'fixture', name: 'Bots fixture' }] }
   async resolveModel(provider, model) { return { provider, id: model, name: model } }
 
   async *stream({ messages, tools, signal }) {
@@ -57,9 +57,9 @@ class Fixture extends LlmAdapter {
         }
       } else if (systemText.includes('请总结你主持的讨论')) {
         text = 'KingBot | 讨论汇总完成'
-      } else if (systemText.includes('这是你与用户的专属对话') && /方案\/流程助手|资料核对助手|方法论\/实验设计助手|这几个都帮我建立一下/.test(latest)) {
+      } else if (systemText.includes('这是你与用户的专属对话') && /方案\/流程助手|资料核对助手|方法论\/实验设计助手|这几个都帮我建立一下|额度验收助手/.test(latest)) {
         const evidence = latest.replace(/^原始请求：/, '').split('\n上次回复校验失败：')[0]
-        const names = evidence.includes('方案/流程助手') ? ['方案/流程助手', '记录助手']
+        const names = evidence.includes('额度验收助手') ? ['额度验收助手甲', '额度验收助手乙'] : evidence.includes('方案/流程助手') ? ['方案/流程助手', '记录助手']
           : evidence.includes('方法论/实验设计助手') || evidence.includes('这几个都帮我建立一下')
             ? ['实验设计助手', '数据分析助手', '批判性审稿助手', '学术写作助手'] : ['资料核对助手']
         text = JSON.stringify({ tasks: [], botActions: names.map(name => ({
@@ -68,16 +68,18 @@ class Fixture extends LlmAdapter {
           duty: name === '资料核对助手' && !latest.includes('上次回复校验失败：') ? ''
             : name === '实验设计助手' ? '评估研究方法论并提出实验设计' : '整理并核对合成验收资料',
         })) })
-      } else if (systemText.includes('这是你与用户的专属对话') && /完成离线清单方案|新建空白验收群聊|新建记忆隔离验收群聊/.test(latest)) {
+      } else if (systemText.includes('这是你与用户的专属对话') && /完成离线清单方案|新建空白验收群聊|新建记忆隔离验收群聊|验收恢复任务|额度补建群/.test(latest)) {
         const available = JSON.parse(systemText.match(/可用成员：(\[.*?\])。普通工作区：/su)[1])
-        const runTask = latest.includes('完成离线清单方案')
+        const capacity = latest.includes('额度补建群')
+        const recovering = latest.includes('验收恢复任务')
+        const runTask = recovering || latest.includes('完成离线清单方案')
         text = JSON.stringify({ tasks: [], groupAction: {
-          title: runTask ? '清单设计讨论' : latest.includes('新建记忆隔离验收群聊') ? '记忆隔离验收群' : '空白验收群',
-          topic: runTask ? '完成离线清单方案，比较同步与纯本地方案' : '仅创建群聊',
-          memberIds: [available.find(member => member.name === '架构师').id],
-          newBots: runTask ? [{ name: '离线方案审阅员', duty: '专门复核离线存储取舍' }] : [],
+          title: capacity ? '额度补建群' : recovering ? '恢复验收群' : runTask ? '清单设计讨论' : latest.includes('新建记忆隔离验收群聊') ? '记忆隔离验收群' : '空白验收群',
+          topic: recovering ? '验收恢复任务，预算上限 60 元；比较两份依据' : runTask ? '完成离线清单方案，比较同步与纯本地方案' : '仅创建群聊',
+          memberIds: available.filter(member => member.name === '架构师' || recovering && member.name === '审阅员').map(member => member.id),
+          newBots: capacity ? [{ name: '额度验收群助手', duty: '核查名额' }] : runTask && !recovering ? [{ name: '离线方案审阅员', duty: '专门复核离线存储取舍' }] : [],
           runTask,
-          evidence: latest,
+          evidence: latest.replace(/^原始请求：/, '').split('\n上次回复校验失败：')[0],
         } })
       } else if (systemText.includes('这是你与用户的专属对话')) {
         text = '{"reply":"这条消息没有提出建群操作。"}'
@@ -90,6 +92,13 @@ class Fixture extends LlmAdapter {
       const state = discussion ? JSON.parse(latest) : { 议题: addressed ? latest : input, 已有讨论: [] }
       const last = state.已有讨论.at(-1)
       slow = role === '架构师' && /验收实时插话原议题|验收暂停原议题|验收语义暂停原议题|验收待确认原议题|验收换任务原议题|验收优先点名原议题/u.test(state.议题)
+      if (discussion && role === '架构师' && state.议题.includes('验收恢复任务') && !input.includes('已核对')) {
+        if (!toolResults.length && tools.some(tool => tool.name === 'write')) {
+          toolCall = { name: 'write', arguments: '{"file_path":"p1-pending-write.txt","content":"P1-CHECKPOINT-459"}' }
+        } else {
+          slow = true
+        }
+      }
       if (addressed || discussion) text = addressed ? `${role} | 直接回复` : last ? `${role} | 回应 ${last.name}` : `${role} | 初步观点`
       if (state.议题.includes('验收首次主持故障') && role === '审阅员') failure = '等待该成员回复超时。'
       if (state.议题.includes('验收多附件')) {
@@ -162,7 +171,9 @@ class Fixture extends LlmAdapter {
   }
 }
 
-export function apply(ctx) {
+export async function apply(ctx) {
+  const testWorkspace = process.env.DSH_BOTS_RECOVERY_WORKSPACE
+  if (testWorkspace) await ctx.workspaceRegistry.create(testWorkspace, 'P1验收工作区')
   ctx.llm.registerAdapter(['bots-fixture'], new Fixture())
   ctx.web.registerSearchProvider({
     id: 'bots-fixture-search',

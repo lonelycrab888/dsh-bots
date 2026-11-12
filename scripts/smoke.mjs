@@ -2,17 +2,17 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createRequire } from 'node:module'
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { zstdDecompressSync } from 'node:zlib'
+import { constants as zlibConstants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 
 const root = new URL('../', import.meta.url)
 const { engines } = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 const upgradeFrom = process.env.DSH_BOTS_UPGRADE_FROM
 const oldVersion = upgradeFrom && JSON.parse(execFileSync('tar', ['-xOf', resolve(upgradeFrom), 'package/package.json'], { encoding: 'utf8' })).version
-const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3'].includes(oldVersion)
+const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4'].includes(oldVersion)
 const oldRoutesThroughKing = legacyRouting || ['0.2.2', '0.3.1', '0.3.2'].includes(oldVersion)
 const dir = await mkdtemp(join(tmpdir(), 'dsh-bots-smoke-'))
 const env = { ...process.env, DSH_HOME: dir }
@@ -49,10 +49,10 @@ async function startHost() {
   throw new Error(`DSH Web did not start: ${output.replace(/token=[\w-]+/g, 'token=[redacted]')}`)
 }
 
-async function stopHost() {
+async function stopHost(signal = 'SIGTERM') {
   if (!host || host.exitCode !== null || host.signalCode !== null) return
   const exited = once(host, 'exit')
-  host.kill('SIGTERM')
+  host.kill(signal)
   await exited
 }
 
@@ -83,6 +83,98 @@ async function savedIdentities() {
   }
   assert.ok(group && king, 'Both the group and the dedicated coordinator session must be saved')
   return { group, king }
+}
+
+async function exerciseTaskRecovery(defaultWorkspace) {
+  browser('run-code', (async page => {
+    const button = name => page.getByRole('button', { name, exact: true })
+    await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+    await button('KingBot').click()
+    await button('与 KingBot 对话').click()
+    const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+    await editor.fill('请为验收恢复任务建群，邀请 @架构师 和 @审阅员，讨论两份依据并回传结论')
+    await editor.press('Enter')
+    await button('确认建群').click()
+    await page.getByRole('status').filter({ hasText: '恢复验收群' }).getByRole('button', { name: '打开群聊' }).click()
+    await page.getByRole('log').getByText('审阅员 | 初步观点', { exact: true }).waitFor()
+  }).toString())
+  const written = join(defaultWorkspace, 'p1-pending-write.txt')
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline && !await stat(written).catch(() => undefined)) await delay(100)
+  assert.equal(await readFile(written, 'utf8'), 'P1-CHECKPOINT-459')
+  await stopHost('SIGKILL')
+
+  browser('goto', await startHost())
+  browser('run-code', (async page => {
+    const button = name => page.getByRole('button', { name, exact: true })
+    await button('搜索会话').click()
+    await page.getByPlaceholder(/搜索会话名称/).fill('恢复验收群')
+    await page.getByRole('treeitem', { name: /恢复验收群/ }).click()
+    const task = page.getByRole('complementary', { name: '议题与进度' })
+    await task.getByText(/已收到 1 条发言.*待核对/).waitFor()
+    if (await button('继续讨论').isEnabled()) throw new Error('An unverified write must not restart')
+    await button('汇总已有结果').evaluate(button => { button.click(); button.click() })
+    await page.getByRole('log').getByText(/尚未收到 架构师/).waitFor()
+    await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+    await button('KingBot').click()
+    await button('与 KingBot 对话').click()
+    const log = page.getByRole('log')
+    const phase = log.locator('article').filter({ hasText: /群聊阶段结果/ })
+    await phase.waitFor()
+    if (await phase.count() !== 1) throw new Error('Duplicate summary')
+    await phase.getByRole('button', { name: '打开群聊' }).click()
+    const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+    await editor.fill('已核对，继续')
+    await editor.press('Enter')
+    await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
+  }).toString())
+  await stopHost()
+
+  const sessionRoot = join(dir, 'sessions')
+  const files = (await readdir(sessionRoot, { recursive: true })).filter(path => /session\.v\d+\.jsonl(?:\.zstd)?$/.test(path))
+  const streams = await Promise.all(files.map(async file => {
+    const path = join(sessionRoot, file)
+    const bytes = await readFile(path)
+    const records = (file.endsWith('.zstd') ? zstdDecompressSync(bytes) : bytes).toString().trim().split('\n').map(JSON.parse)
+    return { path, records }
+  }))
+  const target = streams.find(item => item.records.some(event => event.type === 'session/title' && event.data?.title === '群聊 · 恢复验收群'))
+  const king = streams.find(item => item.records.some(event => event.type === 'plugin:dsh-bots/king'))
+  assert.ok(target && king)
+  const targetId = target.records[0].id
+  assert.ok(target.records.flatMap(event => event.type === 'plugin:dsh-bots/rows' ? event.data : []).some(row => row.resultKind === 'final'))
+  const returned = king.records.flatMap(event => event.type === 'plugin:dsh-bots/rows' ? event.data : [])
+    .filter(row => row.sessionId === targetId && row.author === 'bot' && row.text.startsWith('群聊结论'))
+  assert.equal(returned.length, 1)
+  const id = returned[0].id
+  // Reproduce a durable group result with the origin delivery missing.
+  for (const event of king.records) if (event.type === 'plugin:dsh-bots/rows') event.data = event.data.filter(row => row.id !== id)
+  const [header, ...events] = king.records.map(record => JSON.stringify(record) + '\n')
+  const encodeFrame = line => zstdCompressSync(Buffer.from(line), {
+    params: { [zlibConstants.ZSTD_c_checksumFlag]: 1 },
+  })
+  // Harness reads the session header as an independent Zstandard frame.
+  const payload = king.path.endsWith('.zstd')
+    ? Buffer.concat([encodeFrame(header), encodeFrame(events.join(''))])
+    : header + events.join('')
+  await writeFile(king.path, payload)
+  await rm(join(dir, 'cache'), { recursive: true, force: true })
+
+  for (let restart = 0; restart < 2; restart++) {
+    browser('goto', await startHost())
+    browser('run-code', (async page => {
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
+      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
+      const recovered = page.locator('[data-row-id="' + RECOVERED_ID + '"]')
+      await recovered.waitFor()
+      if (await recovered.count() !== 1) throw new Error('Duplicate final delivery')
+    }).toString().replace('RECOVERED_ID', JSON.stringify(id)))
+    await stopHost()
+  }
+  const calls = await requests()
+  assert.equal(calls.filter(call => call.calledTool === 'write' && call.input.includes('验收恢复任务')).length, 1)
+  console.log('Verified interrupted task, one partial delivery, verified resume, and idempotent final delivery after restart.')
 }
 
 try {
@@ -148,13 +240,18 @@ try {
     const legacy = process.env.DSH_BOTS_SMOKE_LEGACY
     const oldRouting = process.env.DSH_BOTS_SMOKE_OLD_ROUTING
     const preview = page.getByRole('button', { name: /^(继续|Continue)$/ })
-    await page.getByRole('button', { name: 'Bots', exact: true }).waitFor()
+    await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).waitFor()
     if (await preview.isVisible()) await preview.click()
-    await page.getByRole('button', { name: 'Bots', exact: true }).click()
+    await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
     await page.getByText('尚未创建子 Bot。点击“新建 Bot”定义名称和职责，再创建群聊。', { exact: true }).waitFor()
+    const kingEntry = page.getByRole('button', { name: 'KingBot', exact: true })
+    await kingEntry.or(page.getByRole('textbox', { name: /^(KingBot|Bots King) 工作区目录$/ })).first().waitFor()
+    if (await kingEntry.isVisible()) await kingEntry.click()
     await page.getByRole('textbox', { name: /^(KingBot|Bots King) 工作区目录$/ }).fill(process.env.DSH_BOTS_SMOKE_WORKSPACE)
     await page.getByRole('button', { name: '启用工作区', exact: true }).click()
     await page.getByRole('button', { name: /^与 (KingBot|Bots King) 对话$/ }).waitFor()
+    const back = page.getByRole('button', { name: '返回 Bots 定义', exact: true })
+    if (await back.isVisible()) await back.click()
     for (const [name, duty] of [['架构师', '提出技术方案'], ['审阅员', '审阅方案并提出验收建议']]) {
       await page.getByRole('button', { name: '新建 Bot', exact: true }).click()
       await page.getByRole('textbox', { name: 'Bot 名称', exact: true }).fill(name)
@@ -228,9 +325,10 @@ try {
     const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE
     const legacy = process.env.DSH_BOTS_SMOKE_LEGACY
     const oldRouting = process.env.DSH_BOTS_SMOKE_OLD_ROUTING
-    await page.getByRole('button', { name: 'Bots', exact: true }).waitFor()
+    await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).waitFor()
     if (upgrading) {
-      await page.getByRole('button', { name: 'Bots', exact: true }).click()
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
       await page.getByText('KingBot · 专属对话', { exact: true }).waitFor()
     }
@@ -273,7 +371,8 @@ try {
     console.log(`Verified upgrade, KingBot rename, and preserved session identities on DSH ${runtime}.`)
   } else {
     browser('run-code', (async page => {
-      await page.getByRole('button', { name: 'Bots', exact: true }).click()
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
       await page.getByText('KingBot · 专属对话', { exact: true }).waitFor()
       const log = page.getByRole('log', { name: '群聊时间线' })
@@ -309,7 +408,7 @@ try {
       await replies.last().filter({ hasText: /工作区改为.*按修改后的方案建群吗/ }).waitFor()
       await send('好，就这么建。')
       await replies.last().filter({ hasText: /群聊结论：.*KingBot \| 讨论汇总完成/s }).waitFor()
-      const opened = page.getByRole('button', { name: '打开群聊', exact: true })
+      const opened = log.getByRole('status').getByRole('button', { name: '打开群聊', exact: true })
       if (await opened.count() !== 1) throw new Error('Confirmation must create exactly one group')
       await send('确认建群')
       await replies.last().filter({ hasText: /当前没有待确认的建群方案/ }).waitFor()
@@ -317,8 +416,9 @@ try {
       await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
       await log.getByText('架构师 | 回应 离线方案审阅员', { exact: true }).waitFor()
       await log.getByText('完成离线清单方案，比较同步与纯本地方案', { exact: true }).waitFor()
-      await page.getByRole('button', { name: 'Bots', exact: true }).click()
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
       await page.getByRole('heading', { name: '离线方案审阅员', exact: true }).waitFor()
+      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
       await send('请新建空白验收群聊，成员为 @架构师')
       await confirm.waitFor()
@@ -336,7 +436,8 @@ try {
     await stopHost()
     browser('goto', await startHost())
     browser('run-code', (async page => {
-      await page.getByRole('button', { name: 'Bots', exact: true }).click()
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
       const blank = page.getByRole('status').filter({ hasText: /已在.*空白验收群/ })
       await blank.getByRole('button', { name: '打开群聊', exact: true }).click()
@@ -461,7 +562,8 @@ try {
       const fact = log.locator('article[data-author=bot]').getByText('本群暗号是 GROUP-A-ONLY-496', { exact: true })
       await fact.waitFor()
 
-      await page.getByRole('button', { name: 'Bots', exact: true }).click()
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
       await page.getByText('KingBot · 专属对话', { exact: true }).waitFor()
       await send('请新建记忆隔离验收群聊，成员为 @架构师')
@@ -498,7 +600,11 @@ try {
     const latestMessage = item => JSON.parse(item.input).最新用户消息
     const callsFor = needle => completed.filter(item => item.role !== '默认' && latestMessage(item).includes(needle))
     for (const subject of ['验收暂停原议题', '验收语义暂停原议题', '验收待确认原议题', '验收换任务原议题', '验收优先点名原议题', '验收实时插话原议题']) {
-      const calls = callsFor(subject)
+      const calls = callsFor(subject).filter(item => {
+        if (item.intentCheck) return false
+        try { return JSON.parse(latestMessage(item)).议题?.includes(subject) }
+        catch { return latestMessage(item).includes(subject) }
+      })
       assert.equal(calls.filter(item => item.discussion && item.role === '架构师').length, 1)
       assert.equal(calls.filter(item => !item.moderator && !item.intentCheck && item.role === 'KingBot').length, 0)
     }
@@ -535,6 +641,7 @@ try {
     const delegated = completed.filter(item => item.moderator && item.input.includes('完成离线清单方案'))
     assert.ok(delegated.length >= 3)
     assert.ok(completed.filter(item => item.moderator || item.intentCheck).every(item => !item.tools.length))
+    if (process.env.DSH_BOTS_RECOVERY_SMOKE === '1') await exerciseTaskRecovery(defaultWorkspace)
     console.log(`Verified natural Bot creation, dynamic discussion, confirmed group placement, and return of results on DSH ${runtime}.`)
   }
 } catch (error) {

@@ -31,7 +31,7 @@ export const Config = Schema.object({
     maxMembers: Schema.number().step(1).min(1).max(12).default(4),
     bots: Schema.array(Schema.object({
       id: Schema.string().required(), name: Schema.string().required(),
-      model: modelSchema,
+      model: modelSchema, avatar: Schema.string(),
       duty: Schema.string().required(), archived: Schema.boolean().default(false),
     })).default(defaultLibrary.bots),
   }).default(defaultLibrary), value => validateLibrary(value)).default(defaultLibrary).volatile(),

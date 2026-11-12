@@ -1,10 +1,10 @@
 import { performReset, finishReset, sessionIsCurrent, resetOptions, type ResetPort } from './reset.ts'
 import { WorkspaceVisibility, type WorkspaceRegistryPort } from './workspace-visibility.ts'
 import { assertRootCreation, isKingWorkspace, reservedWorkspaceNotice } from './workspace-policy.ts'
-import { modelForBot, availableMembers, redactDeletedBotIds, freshCoordinator } from './bots.ts'
+import { modelForBot, availableMembers, redactDeletedBotIds, freshCoordinator, updateLibrary } from './bots.ts'
 import { bindTypertRemote } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
-import { KING_REMOTE, kingRequest } from './king-remote.ts'
+import { KING_REMOTE, catalogInput, kingRequest } from './king-remote.ts'
 import { WorkspaceMemory } from './workspace-memory.ts'
 import { realpathSync, existsSync, statSync } from 'node:fs'
 import { z } from 'zod'
@@ -29,12 +29,15 @@ import { projection } from './projection.ts'
 import type { Config, KingWorkspace } from './config.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from './group-creation.ts'
 import { continuesDiscussion, discussionInstructions, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep, type DiscussionIntent } from './discussion.ts'
+import { findTask, modelTopic, newTask, operationMayChangeState, resultRowId, taskActionLabel, taskControl, taskDigest, taskRows, type DiscussionTask, type TaskAction, type TaskOperation } from './tasks.ts'
 export { Config } from './config.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'dsh-bots/group-created': { kind: 'dsh-bots/group-created' }
     'dsh-bots/wake-group': { kind: 'dsh-bots/wake-group' }
+    'dsh-bots/task-start': { kind: 'dsh-bots/task-start'; taskId: string }
+    'dsh-bots/task-choice': { kind: 'dsh-bots/task-choice'; taskId: string; action: TaskAction; revision: number }
     'dsh-bots/group-choice': { kind: 'dsh-bots/group-choice'; action: 'confirm' | 'cancel'; confirmationId: string }
   }
 }
@@ -50,6 +53,7 @@ export async function apply(ctx: Context, config: Config) {
   const steeringMessages = new WeakMap<Agent, Set<string>>()
   const promotedMentions = new WeakMap<Agent, Set<string>>()
   const routedGroups = new WeakSet<Agent>()
+  const queuedTaskActions = new WeakMap<Agent, string>()
   const redirected = new Error('用户插话')
   const paused = new Error('用户暂停讨论')
   const addressedByUser = new Error('用户直接点名')
@@ -74,14 +78,32 @@ export async function apply(ctx: Context, config: Config) {
     resetting=true
     recovery=(async()=>{
       await finishReset(resetPort)
+      const library = validateLibrary(config.library.get())
+      if (library.bots.some(bot => !bot.avatar)) {
+        const entry = ctx.settings.describe().find(item => item.ns === 'dsh-bots')!
+        await ctx.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: updateLibrary(library, library) }], entry.revision)
+      }
       const selected=config.kingWorkspace.get()
       if(!selected)return
-      if(existsSync(selected.path))await visibility.show(selected.path,selected.sessionId)
+      if(existsSync(selected.path)) await visibility.show(selected.path,selected.sessionId)
       else{
         await visibility.forget(selected.path)
         await resetPort.commit({kingWorkspace:null,sessionEpoch:config.sessionEpoch.get()+1,resetEpoch:config.resetEpoch.get()+1},resetPort.read().revision)
       }
     })().catch(error=>{recoveryError=error instanceof Error?error.message:String(error)}).finally(()=>{resetting=false})
+  })
+  ctx.inject(['sessionController'], (services) => {
+    setImmediate(async () => {
+      await recovery
+      const selected = config.kingWorkspace.get()
+      if (!selected?.sessionId || lifetime.signal.aborted) return
+      try {
+        const loaded = await services.sessionController.resolveAgent(SessionId(selected.sessionId))
+        if ('agent' in loaded) await recoverTaskResults(loaded.agent)
+      } catch (error) {
+        ctx.logger.warn(`dsh-bots: could not restore result delivery: ${String(error)}`)
+      }
+    })
   })
   ctx.effect(()=>async()=>{
     lifetime.abort()
@@ -118,6 +140,18 @@ export async function apply(ctx: Context, config: Config) {
 
   const kingService = {
     ctx,
+    async saveCatalog(input: unknown) {
+      try {
+        await recovery
+        if (resetting || config.resetPending.get()) throw new Error('请先完成重置。')
+        const { library, revision } = catalogInput.parse(input)
+        const updated = updateLibrary(validateLibrary(config.library.get()), library)
+        await ctx.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: updated }], revision)
+        return { kind: 'success', text: '' }
+      } catch (error) {
+        return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+      }
+    },
     async reset(input:unknown){
       try{
         await recovery
@@ -156,7 +190,27 @@ export async function apply(ctx: Context, config: Config) {
           if(previousWorkspace&&previousWorkspace.path!==path)await visibility.hide(previousWorkspace.path)
           return { kind:'success', text:JSON.stringify(selected) }
         }
+        if (request.action === 'task-action') {
+          const group = groups.stateOf(agent.session).group
+          const task = group?.tasks?.find(item => item.id === request.taskId)
+          if (!group || group.mode === 'king' || !sessionIsCurrent(group, config.sessionEpoch.get()) ||
+              isKingWorkspace(agent.session.header.cwd, config.kingWorkspace.get())) throw new Error('请在可用的群聊中处理任务。')
+          if (!task || !request.taskAction || task.revision !== request.revision || task.status === 'ended') throw new Error('任务进度已更新，请刷新后再操作。')
+          const key = `${task.id}:${task.revision}`
+          if (queuedTaskActions.get(agent) === key) return { kind: 'success', text: '' }
+          if (task.status === 'running' || queuedTaskActions.has(agent)) throw new Error('请先暂停当前讨论。')
+          queuedTaskActions.set(agent, key)
+          agent.followup(createUserMessage({
+            source: { kind: 'dsh-bots/task-choice', taskId: task.id, action: request.taskAction, revision: task.revision },
+            content: [{ type: 'text', text: taskActionLabel[request.taskAction] }],
+          }))
+          return { kind: 'success', text: '' }
+        }
         if (groups.stateOf(agent.session).group?.mode !== 'king' || (agent.session.header.cwd ? realpathSync(agent.session.header.cwd) : '') !== workspace().path) throw new Error('请打开当前工作区的 KingBot 专属对话。')
+        if (request.action === 'recover-results') {
+          await recoverTaskResults(agent)
+          return { kind: 'success', text: '' }
+        }
         if (request.action === 'confirm-group' || request.action === 'cancel-group') {
           const proposal = groups.stateOf(agent.session).pendingGroup
           if (!proposal || request.confirmationId !== confirmationId(proposal)) throw new Error('这份方案已更新，请使用当前方案。')
@@ -187,6 +241,77 @@ export async function apply(ctx: Context, config: Config) {
 
   function addRows(agent: Agent, rows: Row[]) {
     appendPluginRecord(agent.session, 'plugin:dsh-bots/rows', rows)
+  }
+
+  function saveTask(agent: Agent, task: DiscussionTask, active = true) {
+    const updated = { ...task, updatedAt: Date.now(), revision: task.revision + 1 }
+    appendPluginRecord(agent.session, 'plugin:dsh-bots/task', { task: updated, active })
+    return updated
+  }
+
+  async function resolveSessionAgent(id: ReturnType<typeof SessionId>) {
+    const loaded = ctx.agents.get(id)
+    if (loaded) return loaded
+    const resolved = await ctx.get('sessionController')?.resolveAgent(id)
+    return resolved && 'agent' in resolved ? resolved.agent : undefined
+  }
+
+  async function returnTaskResults(agent: Agent, origin?: Agent) {
+    await deliverTaskResults(String(agent.id), groups.stateOf(agent.session).group, origin)
+  }
+
+  async function deliverTaskResults(groupId: string, group: Group | null, origin?: Agent) {
+    if (!group || !sessionIsCurrent(group, config.sessionEpoch.get())) return
+    for (const task of group.tasks ?? []) {
+      if (!task.origin || origin && task.origin !== String(origin.id)) continue
+      const results = group.rows.filter((row): row is Extract<Row, { author: 'bot' }> =>
+        row.author === 'bot' && row.status === 'done' && row.taskId === task.id && !!row.resultKind)
+      if (!results.length) continue
+      const originId = SessionId(task.origin)
+      const resolved = origin ?? await resolveSessionAgent(originId)
+      if (!resolved) continue
+      const destination = groups.stateOf(resolved.session).group
+      if (destination?.mode !== 'king' || !sessionIsCurrent(destination, config.sessionEpoch.get())) continue
+      if (!destination.rows.some(row => row.author === 'notice' && row.taskLink === task.id && row.sessionId === groupId)) continue
+      const known = new Set(destination.rows.map(row => row.id))
+      const pending = results.filter(row => !known.has(resultRowId(task.id, row.id)))
+      if (!pending.length) continue
+      addRows(resolved, pending.map(row => ({
+        id: resultRowId(task.id, row.id), author: 'bot', botId: coordinatorId, status: 'done',
+        text: (row.resultKind === 'partial' ? '群聊阶段结果：' : '群聊结论：') + '\n' + row.text,
+        sessionId: groupId,
+      })))
+      await ctx.sessions.flush(resolved.session)
+    }
+  }
+
+  async function tryReturnTaskResults(agent: Agent, origin?: Agent) {
+    try { await returnTaskResults(agent, origin) }
+    catch (error) { ctx.logger.warn(`dsh-bots: could not return saved group results: ${String(error)}`) }
+  }
+
+  async function recoverTaskResults(agent: Agent) {
+    if (lifetime.signal.aborted) return
+    const group = groups.stateOf(agent.session).group
+    if (group?.mode !== 'king') {
+      await returnTaskResults(agent)
+      return
+    }
+    const links = new Set(group.rows.flatMap(row => row.author === 'notice' && row.taskLink && row.sessionId ? [row.sessionId] : []))
+    for (const id of links) {
+      if (lifetime.signal.aborted) return
+      const sessionId = SessionId(id)
+      try {
+        const stored = await ctx.sessionPersistence.open(sessionId, 'read', { signal: lifetime.signal })
+        try {
+          const data = await stored.read()
+          const state = data.events.reduce(projection.apply, projection.init(stored.header, stored.inheritedEventCount))
+          await deliverTaskResults(id, state.group, agent)
+        } finally { await stored.close() }
+      } catch (error) {
+        ctx.logger.warn(`dsh-bots: could not read a linked discussion: ${String(error)}`)
+      }
+    }
   }
 
   async function checkpointBotSession(agent: Agent) {
@@ -247,7 +372,14 @@ export async function apply(ctx: Context, config: Config) {
         ? [{ ...row, status: 'stopped', text: '上一轮在宿主关闭时中断。' }]
         : [])
     if (pending?.length) addRows(agent, pending)
-    if (rename || pending?.length) await ctx.sessions.flush(agent.session)
+    const interrupted = group?.tasks?.filter(task => task.status === 'running') ?? []
+    for (const task of interrupted) {
+      const final = group?.rows.some(row => row.author === 'bot' && row.id === `${task.runId}:summary` &&
+        row.status === 'done' && row.resultKind === 'final')
+      saveTask(agent, { ...task, status: final ? 'complete' : 'paused' }, group?.activeTaskId === task.id)
+    }
+    if (rename || pending?.length || interrupted.length) await ctx.sessions.flush(agent.session)
+    setImmediate(() => void recoverTaskResults(agent).catch(error => ctx.logger.warn(`dsh-bots: result recovery: ${String(error)}`)))
     return undefined
   })
 
@@ -259,6 +391,11 @@ export async function apply(ctx: Context, config: Config) {
     const command = localDocumentReferences(text).text
     const active = activeDiscussions.get(agent)
     const steering = agent.inbox.nextStep.some(item => item.id === message.id)
+    const action = !command.includes('@') ? taskControl(command) : undefined
+    if (action && group.tasks?.length) {
+      if (active && action.action !== 'resume') active.abort(paused)
+      return
+    }
     const directPause = explicitDiscussionPause(command)
     const hasControlCue = mayRedirectDiscussion(command)
     let singleTarget = false
@@ -312,6 +449,7 @@ export async function apply(ctx: Context, config: Config) {
   })
 
   ctx.on('agent/inbox/discarded', ({ agent, message }) => {
+    if (message.source.kind === 'dsh-bots/task-choice') queuedTaskActions.delete(agent)
     steeringMessages.get(agent)?.delete(message.id)
     controlDecisions.get(agent)?.delete(message.id)
   })
@@ -322,8 +460,8 @@ export async function apply(ctx: Context, config: Config) {
     // The host's rejected pre-step parks input that arrived while the
     // plugin was working. Wake it after the driver releases the Agent.
     queueMicrotask(() => {
-      const pendingUser = agent.inbox.nextStep.some(message => message.source.kind === 'user')
-        || agent.inbox.nextTurn.some(message => message.source.kind === 'user')
+      const pendingUser = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+        .some(message => message.source.kind === 'user' || message.source.kind === 'dsh-bots/task-choice')
       if (!pendingUser || lifetime.signal.aborted || agent.status !== 'idle' || ctx.agents.get(agent.id) !== agent) return
       agent.steer(createUserMessage({ source: { kind: 'dsh-bots/wake-group' }, content: [] }))
     })
@@ -349,7 +487,8 @@ export async function apply(ctx: Context, config: Config) {
     // Reject the root model step after routing the native composer input.
     // An empty accepted batch can be refilled by other pre-step listeners.
     const userMessages = messages.filter(message => message.source.kind === 'user' ||
-      existingGroup.mode === 'king' && message.source.kind === 'dsh-bots/group-choice')
+      existingGroup.mode === 'king' && message.source.kind === 'dsh-bots/group-choice' ||
+      existingGroup.mode !== 'king' && (message.source.kind === 'dsh-bots/task-choice' || message.source.kind === 'dsh-bots/task-start'))
     const turnSignal = AbortSignal.any([signal, lifetime.signal])
     for (const message of userMessages) {
       const group = groups.stateOf(agent.session).group
@@ -359,8 +498,11 @@ export async function apply(ctx: Context, config: Config) {
       const original = entered || (attachments.length ? '请阅读本条消息的附件并说明要点。' : '')
       const decisions = controlDecisions.get(agent)
       const steering = steeringMessages.get(agent)?.delete(message.id) ?? false
+      const taskMessage = message.source.kind === 'dsh-bots/task-start' || message.source.kind === 'dsh-bots/task-choice' ? message.source : undefined
+      if (message.source.kind === 'dsh-bots/task-choice') queuedTaskActions.delete(agent)
+      const typedControl = !original.includes('@') && group.tasks?.length && taskControl(original)
       const intent = await decisions?.get(message.id)
-        ?? (group.mode !== 'king' && explicitDiscussionPause(localDocumentReferences(original).text) ? { kind: 'pause' as const } : undefined)
+        ?? (!taskMessage && !typedControl && group.mode !== 'king' && explicitDiscussionPause(localDocumentReferences(original).text) ? { kind: 'pause' as const } : undefined)
       decisions?.delete(message.id)
       turnSignal.throwIfAborted()
       if (intent?.kind === 'pause' || intent?.kind === 'clarify') {
@@ -380,7 +522,7 @@ export async function apply(ctx: Context, config: Config) {
       const task = intent?.kind === 'redirect' ? intent.task : original
       if (task) {
         const clicked = message.source.kind === 'dsh-bots/group-choice' ? message.source.confirmationId : undefined
-        const interrupted = await dispatch(agent, group, message.id, task, modelSelection, turnSignal, steering, attachments, original, intent?.kind === 'redirect', clicked)
+        const interrupted = await dispatch(agent, group, message.id, task, modelSelection, turnSignal, steering, attachments, original, intent?.kind === 'redirect', clicked, taskMessage)
         if (interrupted) break
       }
     }
@@ -494,18 +636,26 @@ export async function apply(ctx: Context, config: Config) {
     }
     appendPluginRecord(parent.session, 'plugin:dsh-bots/group-proposal', { proposal: null })
     const opened = `已在「${workspace.title}」创建群聊「${proposal.title}」。`
-    addRows(parent, [{ id: proposal.runTask ? `${planner.id}:group` : planner.id, author: 'notice', text: opened, sessionId }])
+    const delegated = proposal.runTask ? saveTask(target, {
+      ...newTask(proposal.sessionId, proposal.topic, String(parent.id), proposal.title),
+      memberIds: members.ids,
+    }) : undefined
+    addRows(parent, [{
+      id: proposal.runTask ? `${planner.id}:group` : planner.id, author: 'notice', text: opened, sessionId,
+      ...(delegated ? { taskLink: delegated.id } : {}),
+    }])
+    if (delegated) await ctx.sessions.flush(target.session)
     await ctx.sessions.flush(parent.session)
-    if (!proposal.runTask) return
+    if (!delegated) return
 
     signal.throwIfAborted()
     if (target.status !== 'idle' || ctx.agents.turnBoundaryOf(target.session).lastTurn !== 0) {
       return '群聊中已有新消息，请打开群聊继续任务。'
     }
-    addRows(parent, [{ ...planner, text: '群聊正在讨论，完成后会在这里返回结论…' }])
+    addRows(parent, [{ ...planner, status: 'done', text: '群聊已开始，结果会回到这里。' }])
     const mentions = [...proposal.members, ...proposal.newBots].map(member => `@${member.name}`).join(' ')
     const message = createUserMessage({
-      source: { kind: 'user' },
+      source: { kind: 'dsh-bots/task-start', taskId: delegated.id },
       content: [{ type: 'text', text: `${mentions}\n${proposal.topic.replace(/@/g, '＠')}` }],
     })
     const cancel = () => target.cancel({ kind: 'user' })
@@ -518,13 +668,10 @@ export async function apply(ctx: Context, config: Config) {
     } finally {
       signal.removeEventListener('abort', cancel)
     }
-    const summary = groups.stateOf(target.session).group?.rows.find(row => row.id === `${message.id}:summary`)
-    return summary?.author === 'bot' && summary.status === 'done'
-      ? `群聊结论：\n${summary.text}`
-      : '群聊已建立，本次讨论未产生完整结论。请打开群聊查看进度或继续讨论。'
+    await tryReturnTaskResults(target, parent)
   }
 
-  async function dispatch(parent: Agent, group: Group, id: string, text: string, model: ModelSelection, signal: AbortSignal, steering: boolean, attachments: (FileBlock | ImageBlock)[], original: string, redirectedTask: boolean, clicked?: string) {
+  async function dispatch(parent: Agent, group: Group, id: string, text: string, model: ModelSelection, signal: AbortSignal, steering: boolean, attachments: (FileBlock | ImageBlock)[], original: string, redirectedTask: boolean, clicked?: string, taskMessage?: { kind: 'dsh-bots/task-start'; taskId: string } | { kind: 'dsh-bots/task-choice'; taskId: string; action: TaskAction; revision: number }) {
     signal.throwIfAborted()
     try {
       const selected = workspace()
@@ -542,10 +689,73 @@ export async function apply(ctx: Context, config: Config) {
     const entered = redirectedTask ? text : fileInput.text
     text = entered || (localPaths.length ? '请阅读本条消息的文档并说明要点。' : text)
     const topic = discussing ? discussionTopic(text) ?? text : text
-    const continues = inGroup && !redirectedTask && continuesDiscussion(topic, steering)
-    const historyStart = continues
+    let required: Member[]
+    try {
+      required = group.mode === 'king' ? [] : resolveTargets(topic, group.members)
+      if (!topic) throw new Error('请填写要讨论的议题。')
+    } catch (error) {
+      addRows(parent, [{ id, author: 'user', text: original }, { id: `${id}:notice`, author: 'notice', text: (error as Error).message }])
+      await ctx.sessions.flush(parent.session)
+      return
+    }
+    const addressed = required.length === 1 ? required[0] : undefined
+    const typed = discussing && !addressed && !redirectedTask ? taskControl(topic) : undefined
+    const requestedAction = taskMessage?.kind === 'dsh-bots/task-choice' ? taskMessage.action : typed?.action
+    const selectedTask = !discussing || redirectedTask ? undefined : taskMessage
+      ? group.tasks?.find(task => task.id === taskMessage.taskId)
+      : findTask(group, typed?.query ?? topic, Boolean(typed && group.tasks?.length))
+        ?? (steering && group.tasks?.find(task => task.id === group.activeTaskId) || undefined)
+    if (taskMessage?.kind === 'dsh-bots/task-start' && (typeof selectedTask !== 'object' || selectedTask.status !== 'ready')) return
+    if (taskMessage?.kind === 'dsh-bots/task-choice' && (typeof selectedTask !== 'object' || selectedTask.revision !== taskMessage.revision)) return
+    if (selectedTask === 'ambiguous' || requestedAction && !selectedTask && group.tasks?.length) {
+      const choices = group.tasks?.filter(task => task.status !== 'ended').slice(-4).map(task => `「${task.title}」`).join('、')
+      addRows(parent, [{ id, author: 'user', text: original, control: true }, {
+        id: `${id}:question`, author: 'bot', botId: main.id, status: 'done',
+        text: choices ? `你想处理哪个议题？${choices}` : '当前没有可继续的议题。',
+      }])
+      await ctx.sessions.flush(parent.session)
+      return
+    }
+    if (requestedAction && !selectedTask && !group.tasks?.length && typed?.action !== 'resume') {
+      addRows(parent, [{ id, author: 'user', text: original, control: true }, {
+        id: `${id}:question`, author: 'bot', botId: main.id, status: 'done', text: '当前没有可处理的任务。',
+      }])
+      await ctx.sessions.flush(parent.session)
+      return
+    }
+    const previousTask = typeof selectedTask === 'object' ? selectedTask : undefined
+    let task = discussing ? previousTask ?? newTask(id, topic) : undefined
+    const resuming = Boolean(previousTask && previousTask.status !== 'complete')
+    const continuingLegacy = inGroup && !taskMessage && !redirectedTask && !previousTask && continuesDiscussion(topic, steering)
+    const continues = Boolean(previousTask && taskMessage?.kind !== 'dsh-bots/task-start') || continuingLegacy
+    const historyStart = continuingLegacy
       ? Math.max(main.historyStart ?? 0, group.rows.findLastIndex(row => row.author === 'user' && !row.continues))
       : group.rows.length
+    if (!addressed && requestedAction !== 'summarize' && requestedAction !== 'finish' && previousTask?.operations.length && !typed?.verified) {
+      addRows(parent, [{ id, author: 'user', text: original, control: true }, {
+        id: `${id}:verify`, author: 'bot', botId: main.id, status: 'done',
+        text: '还有操作结果待核对。检查后回复「已核对，继续」，或先汇总已有结果。',
+      }])
+      await ctx.sessions.flush(parent.session)
+      return
+    }
+    if (task && typed?.verified) task = {
+      ...task, verifiedOperations: [...task.verifiedOperations ?? [], ...task.operations.map(({ bot, tool, target }) => ({ bot, tool, target }))],
+      operations: [],
+    }
+    if (task && requestedAction === 'finish') {
+      const progress = taskDigest(task, group.rows)
+      const evidence = progress.completed.map(item => `- ${item.name}：${item.text.slice(0, 360)}`).join('\n')
+      const gaps = progress.pending.length || task.operations.length ? '仍有发言或操作结果待核对。' : ''
+      addRows(parent, [{ id, author: 'user', text: original, control: true }, {
+        id: `${id}:summary`, author: 'bot', botId: main.id, status: 'done', taskId: task.id, resultKind: 'partial',
+        text: ['已结束任务。', evidence, gaps].filter(Boolean).join('\n\n'),
+      }])
+      saveTask(parent, { ...task, status: 'ended' })
+      await ctx.sessions.flush(parent.session)
+      await tryReturnTaskResults(parent)
+      return
+    }
     const rejectedDocuments: string[] = []
     const uploaded = attachments.filter((block): block is FileBlock => {
       if (block.type !== 'file') return false
@@ -556,7 +766,7 @@ export async function apply(ctx: Context, config: Config) {
     const documents = [...uploaded]
     const seen = new Set(documents.map(file => file.attachment.attachmentId))
     if (continues) {
-      for (const row of group.rows.slice(historyStart)) {
+      for (const row of previousTask ? taskRows(previousTask, group.rows) : group.rows.slice(historyStart)) {
         if (row.author !== 'user') continue
         for (const file of row.documents ?? []) {
           if (seen.has(file.attachment.attachmentId)) continue
@@ -567,16 +777,16 @@ export async function apply(ctx: Context, config: Config) {
     }
     const userRow: Extract<Row, { author: 'user' }> = {
       id, author: 'user', text: original, ...(continues ? { continues: true } : {}),
+      ...(requestedAction && !typed?.verified && !uploaded.length && !localPaths.length ? { control: true } : {}),
     }
     addRows(parent, [{ ...userRow, ...(uploaded.length ? { documents: [...uploaded] } : {}) }])
-    let required: Member[]
-    try {
-      required = group.mode === 'king' ? [] : resolveTargets(topic, group.members)
-      if (!topic) throw new Error('请填写要讨论的议题。')
-    } catch (error) {
-      addRows(parent, [{ id: `${id}:notice`, author: 'notice', text: (error as Error).message }])
-      await ctx.sessions.flush(parent.session)
-      return
+    if (task) {
+      const sourceRows = userRow.control ? task.sourceRows : [...task.sourceRows, id]
+      task = saveTask(parent, {
+        ...task, sourceRows, runId: id,
+        status: 'running',
+        ...(!previousTask && required.length > 1 ? { memberIds: required.map(member => member.id) } : {}),
+      })
     }
     text = redactDeletedBotIds(text, config.library.get().deletedBotIds)
     const controller = new AbortController()
@@ -584,10 +794,9 @@ export async function apply(ctx: Context, config: Config) {
     activeTurns.set(controller, revision)
     if (inGroup) activeDiscussions.set(parent, controller)
     signal = AbortSignal.any([signal, controller.signal])
-    const addressed = required.length === 1 ? required[0] : undefined
     const planner: Extract<Row, { author: 'bot' }> = {
       id: `${id}:plan`, author: 'bot', botId: addressed?.id ?? main.id,
-      status: 'working', text: addressed ? '正在回复…' : discussing ? '正在组织讨论…' : '正在思考…',
+      ...(task ? { taskId: task.id } : {}), status: 'working', text: addressed ? '正在回复…' : discussing ? '正在组织讨论…' : '正在思考…',
     }
     async function yieldToUser() {
       signal.throwIfAborted()
@@ -600,7 +809,7 @@ export async function apply(ctx: Context, config: Config) {
     const roundSessions = new Map<string, string>()
     const reading = { documents, rejectedDocuments, images: attachments.filter(block => block.type === 'image'), cache: new Map<string, string>() }
     let groupMemory: KingMemory | undefined
-    function ask(member: Member, prompt: string, instructions: string, read = false, requestSignal = signal) {
+    function ask(member: Member, prompt: string, instructions: string, read = false, requestSignal = signal, beforeOperation?: (operation: Omit<TaskOperation, 'rowId' | 'bot'>) => Promise<void>) {
       const context = current()
       if (!inGroup) return askBot(parent, context, member, prompt, model, requestSignal, instructions)
       let sessionId = roundSessions.get(member.id)
@@ -608,28 +817,42 @@ export async function apply(ctx: Context, config: Config) {
         sessionId = randomUUID()
         roundSessions.set(member.id, sessionId)
       }
-      const scoped = { ...context, brief: undefined, coordinator: { ...main, historyStart } }
-      return askBot(parent, scoped, { ...member, sessionId }, prompt, model, requestSignal, instructions, groupMemory, read ? reading : undefined)
+      const scoped = task && !continuingLegacy
+        ? { ...context, rows: taskRows(task, context.rows), brief: previousTask ? modelTopic(task, context.rows) : task.goal, coordinator: { ...main, historyStart: 0 } }
+        : { ...context, brief: undefined, coordinator: { ...main, historyStart } }
+      return askBot(parent, scoped, { ...member, sessionId }, prompt, model, requestSignal, instructions, groupMemory, read ? { ...reading, beforeOperation } : undefined)
     }
     addRows(parent, [planner])
     async function runMember(member: Member, row: Extract<Row, { author: 'bot' }>, prompt: string, instructions: string) {
       await yieldToUser()
-      addRows(parent, [row])
+      const pendingRow = task ? { ...row, taskId: task.id } : row
+      addRows(parent, [pendingRow])
       await ctx.sessions.flush(parent.session)
       let result: typeof row
       try {
-        const reply = await ask(member, prompt, instructions, true, AbortSignal.any([signal, AbortSignal.timeout(120_000)]))
+        const reply = await ask(member, prompt, instructions, true, AbortSignal.any([signal, AbortSignal.timeout(120_000)]), async operation => {
+          if (!task) return
+          if (previousTask?.operations.length && !typed?.verified) throw new Error('本议题有操作结果待核对，请先检查已有结果。')
+          task = saveTask(parent, {
+            ...task,
+            operations: [...task.operations, { ...operation, rowId: row.id, bot: member.name }],
+          })
+          await ctx.sessions.flush(parent.session)
+        })
         result = { ...row, status: 'done', text: reply }
       } catch (error) {
         result = { ...row, status: signal.aborted ? 'stopped' : 'error', text: signal.aborted ? '已停止。'
           : (error as Error).name === 'TimeoutError' ? '等待该成员回复超时。' : (error as Error).message }
       }
-      addRows(parent, [result])
+      addRows(parent, [task ? { ...result, taskId: task.id } : result])
+      if (task && result.status === 'done' && task.operations.some(operation => operation.rowId === row.id)) {
+        task = saveTask(parent, { ...task, operations: task.operations.filter(operation => operation.rowId !== row.id) })
+      }
       await ctx.sessions.flush(parent.session)
       return result
     }
 
-    async function summarize(prompt: string, instructions: string, fallback: string, gaps: string) {
+    async function summarize(prompt: string, instructions: string, fallback: string, gaps: string, partial: boolean) {
       await yieldToUser()
       const summary: Row = { id: `${id}:summary`, author: 'bot', botId: main.id, status: 'working', text: '正在汇总结果…' }
       addRows(parent, [summary])
@@ -642,15 +865,27 @@ export async function apply(ctx: Context, config: Config) {
         answer = fallback
       }
       await yieldToUser()
-      addRows(parent, [{ ...summary, status: 'done', text: [answer, gaps].filter(Boolean).join('\n\n') }])
+      addRows(parent, [{
+        ...summary, status: 'done', text: [answer, gaps].filter(Boolean).join('\n\n'),
+        ...(task ? { taskId: task.id, resultKind: partial ? 'partial' : 'final' } as const : {}),
+      }])
+      if (task) task = saveTask(parent, { ...task, status: partial ? 'paused' : 'complete' })
+      await ctx.sessions.flush(parent.session)
+      await tryReturnTaskResults(parent)
     }
 
     async function moderate(subject: string) {
-      const participants = required.length ? required : group.members
-      const transcript: { botId: string; name: string; question: string; status: string; text: string }[] = []
+      const participants = required.length ? required : task?.memberIds?.length
+        ? group.members.filter(member => task!.memberIds!.includes(member.id)) : group.members
+      const prior = previousTask ? taskDigest(previousTask, group.rows) : undefined
+      const transcript: { botId: string; name: string; question: string; status: string; text: string }[] =
+        prior?.completed.map(item => ({ ...item, status: 'done', text: item.text.slice(0, 1800) })) ?? []
       const invitations = new Map<string, number>()
+      if (resuming) for (const item of transcript) invitations.set(item.botId, (invitations.get(item.botId) ?? 0) + 1)
+      const corrections = task ? taskDigest(task, current().rows).user.slice(-6).map(row => row.text.slice(0, 1600)) : undefined
       const maxTurns = participants.length === 1 ? 1 : participants.length + 2
-      for (let turn = 0; turn < maxTurns; turn++) {
+      const budget = requestedAction === 'summarize' ? 0 : Math.max(0, maxTurns - (resuming ? transcript.length : 0))
+      for (let turn = 0; turn < budget; turn++) {
         await yieldToUser()
         const uncalled = participants.filter(member => !invitations.has(member.id))
         let eligible = participants.filter(member => (invitations.get(member.id) ?? 0) < 2)
@@ -663,6 +898,7 @@ export async function apply(ctx: Context, config: Config) {
         const mayClose = covered && (distinctReplies >= 2 || uncalled.length === 0)
         const state = {
           议题: subject,
+          ...(task && previousTask ? { 原始目标: task.goal, 用户最近要求: corrections } : {}),
           附件: documents.map(file => file.attachment.name),
           本轮可发言: eligible.map(({ id, name, duty }) => ({ id, name, duty })),
           尚未发言: uncalled.map(member => member.name),
@@ -698,19 +934,27 @@ export async function apply(ctx: Context, config: Config) {
         const speaker = eligible.find(member => member.id === step.botId)!
         invitations.set(speaker.id, (invitations.get(speaker.id) ?? 0) + 1)
         addRows(parent, [{ ...planner, id: turn ? `${id}:moderator:${turn}` : planner.id, status: 'done', text: `请 @${speaker.name} 发言：${step.question}` }])
+        const rowId = `${id}:discussion:${turn}`
+        if (task) task = saveTask(parent, { ...task, attempts: [...task.attempts, { rowId, botId: speaker.id, name: speaker.name, question: step.question }] })
         const result = await runMember(speaker,
-          { id: `${id}:discussion:${turn}`, author: 'bot', botId: speaker.id, status: 'working', text: '正在回复…' },
-          JSON.stringify({ 议题: subject, KingBot主持提问: step.question, 已有讨论: transcript }),
-          '你正在参加 KingBot 主持的讨论。回答当前问题，并尽可能针对已有发言给出赞同、质疑、修正或补充及理由。可以点名其他成员。只发一条推进讨论的回复。')
+          { id: rowId, author: 'bot', botId: speaker.id, status: 'working', text: '正在回复…' },
+          JSON.stringify({ 议题: subject, KingBot主持提问: step.question, 已有讨论: transcript, ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
+          '你正在参加 KingBot 主持的讨论。根据用户最近明确的要求回答，不要重复已完成的操作。针对已有发言补充、质疑或给出依据。可以点名其他成员。只发一条推进讨论的回复。')
         transcript.push({ botId: speaker.id, name: speaker.name, question: step.question, status: result.status, text: result.text.slice(0, 1800) })
+        if (task?.operations.length) break
       }
       const completed = transcript.filter(item => item.status === 'done')
-      const failed = [...new Set(transcript.filter(item => item.status !== 'done' && !completed.some(reply => reply.botId === item.botId)).map(item => item.name))]
-      const gaps = failed.length ? `尚未收到 ${failed.join('、')} 的有效回复，相关观点待补充。` : ''
+      const completedIds = new Set(completed.map(item => item.botId))
+      const missing = participants.filter(member => !completedIds.has(member.id)).map(item => item.name)
+      const gaps = [
+        missing.length && `尚未收到 ${missing.join('、')} 的有效回复，相关观点待补充。`,
+        task?.operations.length && '仍有工具操作结果待核对。',
+      ].filter(Boolean).join(' ')
       const excerpts = completed.map(item => `- ${item.name}：${item.text.slice(0, 500)}`).join('\n')
-      await summarize(JSON.stringify({ 议题: subject, 已有讨论: transcript }),
-        '请总结你主持的讨论，基于实际发言给出结论、关键依据和仍待确认的问题。指出缺失或失败的发言，避免把推测说成共识。回答要可直接交给用户。',
-        excerpts ? `KingBot 未能生成完整汇总。已有发言：\n\n${excerpts}` : '本轮还没有可汇总的有效发言。', gaps)
+      await summarize(JSON.stringify({ 议题: subject, 已有讨论: transcript, ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
+        '请总结你主持的讨论，基于实际发言给出结论、明确决定、关键证据和仍待确认的问题。以用户最新确认或更正为准。缺少证据时说明缺口。用简短小标题区分已确认决定、依据和待解决问题。',
+        excerpts ? `KingBot 未能生成完整汇总。已有发言：\n\n${excerpts}` : '本轮还没有可汇总的有效发言。', gaps, requestedAction === 'summarize' || Boolean(task?.operations.length))
+
     }
 
     try {
@@ -736,12 +980,16 @@ export async function apply(ctx: Context, config: Config) {
       }
       await yieldToUser()
       if (addressed) {
-        await runMember(addressed, planner, topic, '用户直接点名了你。直接回答最新用户请求，需要时先使用文档读取工具。')
+        if (task) task = saveTask(parent, { ...task, attempts: [...task.attempts, { rowId: planner.id, botId: addressed.id, name: addressed.name, question: topic }] })
+        const result = await runMember(addressed, planner, topic, '用户直接点名了你。直接回答最新用户请求，需要时先使用文档读取工具。')
+        if (task) task = saveTask(parent, {
+          ...task, status: previousTask?.status === 'paused' || result.status !== 'done' || task.operations.length ? 'paused' : 'complete',
+        })
         return signal.reason === paused || signal.reason === redirected || signal.reason === addressedByUser
       }
       if (inGroup) groupMemory = storeFor().recall(topic, config.kingMemory.get(), 'topic').state
       if (discussing) {
-        await moderate(topic)
+        await moderate(requestedAction && previousTask ? previousTask.goal : topic)
         return
       }
       const pendingGroup = groups.stateOf(parent.session).pendingGroup
@@ -832,6 +1080,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
       const stopped = steered ? '已收到插话，KingBot 将按新消息继续。' : addressedNow ? '已收到点名，上一轮已中断。' : '本轮已停止。'
       const failure = signal.aborted ? stopped : `执行失败：${(error as Error).message}。请重试。`
       addRows(parent, pending.map(row => ({ ...row, status: signal.aborted ? 'stopped' : 'error', text: failure })))
+      if (task?.status === 'running') task = saveTask(parent, { ...task, status: 'paused' })
       if (!pending.length && signal.reason !== paused) addRows(parent, [{ id: `${id}:notice`, author: 'notice', text: failure, ...(steered || addressedNow ? { tone: 'info' } : {}) }])
       return signal.reason === paused || steered || addressedNow
     } finally {
@@ -842,7 +1091,7 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
   }
 
   async function askBot(parent: Agent, group: Group, member: Member, text: string, model: ModelSelection, signal: AbortSignal, instructions: string, memorySnapshot?: KingMemory,
-    reading?: { documents: readonly FileBlock[]; rejectedDocuments: readonly string[]; images: readonly ImageBlock[]; cache: Map<string, string> }) {
+    reading?: { documents: readonly FileBlock[]; rejectedDocuments: readonly string[]; images: readonly ImageBlock[]; cache: Map<string, string>; beforeOperation?: (operation: Omit<TaskOperation, 'rowId' | 'bot'>) => Promise<void> }) {
     signal.throwIfAborted()
     if (member.id !== coordinatorId && !config.library.get().bots.some(bot => bot.id === member.id)) throw new Error('该 Bot 已删除，任务已取消。')
     const startedRevision = contextRevision()
@@ -862,6 +1111,17 @@ ${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自�
           }
         }
         await applyChildComposition(childCtx, parent, {})
+        if (reading.beforeOperation) childCtx.on('tools/pre-execute', async (execution, next) => {
+          if (operationMayChangeState(execution.name)) {
+            const args = execution.arguments as Record<string, unknown> | undefined
+            const path = args?.file_path ?? args?.path
+            await reading.beforeOperation!({
+              id: `${member.sessionId}:${execution.callId}`, tool: execution.name,
+              ...(typeof path === 'string' ? { target: path.slice(0, 500) } : {}),
+            })
+          }
+          return next()
+        })
         childCtx.systemPrompt.section({
           name: 'dsh-bots-tool-availability', order: 1022, interpolate: false,
           text: ({ scope, toolSet }) => {

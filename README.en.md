@@ -6,7 +6,13 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.4`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.5`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+
+## v0.3.5
+
+- Group chats save discussion progress. After a pause or restart, resume the discussion, summarize completed replies, or end the task. The progress panel lists operations that need verification. Tasks started in KingBot's dedicated chat return their results there with a link to the group.
+- Open **查看议题摘要** (View topic summary) to review the goal, constraints, confirmed decisions, messages, and attachments. Ask to resume a named topic to find its context.
+- **Bots 定义** (Bot directory) shows avatars and names. Click a Bot to open its settings. KingBot has a row of its own, and each row of child Bots is centered. Avatars have transparent backgrounds and appear black in light mode and white in dark mode. The disabled-Bot filter and reset action sit below the directory. The library supports up to 20 child Bots, including disabled Bots. Existing libraries over the limit remain editable. Each group has a separate member limit.
 
 ## Fixes in v0.3.4
 
@@ -73,7 +79,7 @@ The group chat fills the available height. The timeline and member bar follow th
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.4.tgz` from the [v0.3.4 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.4).
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.5.tgz` from the [v0.3.5 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.5).
 
 To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
@@ -85,7 +91,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs directly from the main branch. Its v0.3.4 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
+`#main` installs directly from the main branch. Its v0.3.5 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 
@@ -122,7 +128,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.4.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.5.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
@@ -161,7 +167,7 @@ Each child Bot has a name and responsibilities. Long descriptions scroll within 
 
 Model and reasoning options come from the host's standard API configuration. After changing that configuration, click **刷新配置** (Refresh configuration) to reload the choices. If a model exposes no effort choices, the effort selector is disabled with an explanation. Switching models clears the previously selected effort to avoid an incompatible value.
 
-**Names, responsibilities, and member limits apply to new groups. Model and effort settings are read on the next Bot execution and also apply to existing groups.** Existing groups retain a snapshot of their members' responsibilities; editing or disabling a definition does not rewrite historical members or replies. The library holds up to 100 Bots, including disabled ones.
+**Names, responsibilities, and member limits apply to new groups. Model and effort settings are read on the next Bot execution and also apply to existing groups.** Existing groups retain a snapshot of their members' responsibilities; editing or disabling a definition does not rewrite historical members or replies. The library holds up to 20 child Bots, including disabled ones.
 
 ### Deleting and recreating Bots
 

@@ -101,5 +101,6 @@ test('King isolates a name conflict while creating the remaining requested roles
   ], user, () => 'new-analysis')
   assert.deepEqual(result.conflicts, ['实验设计助手'])
   assert.deepEqual(result.created.map(bot => bot.name), ['数据分析助手'])
-  assert.deepEqual(result.library.bots[0], library.bots[0])
+  assert.deepEqual({ ...result.library.bots[0], avatar: undefined }, { ...library.bots[0], avatar: undefined })
+  assert.ok(result.library.bots[0].avatar)
 })

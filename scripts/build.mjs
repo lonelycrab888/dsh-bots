@@ -19,7 +19,7 @@ await Promise.all([
     platform: 'browser',
     target: 'es2022',
     jsx: 'automatic',
-    loader: { '.css': 'text' },
+    loader: { '.css': 'text', '.png': 'dataurl' },
     banner: { js: 'window.__ModuleLoader__.load({id:"dsh-bots",factory:(require)=>{var module={exports:{}};var exports=module.exports;' },
     footer: { js: 'return module.exports;}});' },
   }),

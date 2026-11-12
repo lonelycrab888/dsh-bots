@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isCoordinatorName, normalizeName, requestedBotDefinition, validateLibrary, type Library } from './bots.ts'
+import { isCoordinatorName, normalizeName, requestedBotDefinition, updateLibrary, type Library } from './bots.ts'
 
 export interface GroupWorkspace { id: string; title: string; path: string }
 
@@ -103,11 +103,10 @@ export function validateGroupMembers(proposal: GroupProposal, library: Library) 
     }
     return false
   })
-  if (library.bots.length + added.length > 100) throw new Error('Bot 定义库最多保存 100 个成员（含已停用成员）')
   return {
     ids: [...proposal.members, ...proposal.newBots].map(member => member.id),
     added,
-    library: validateLibrary({ ...library, bots: [...library.bots, ...added.map(bot => ({ ...bot, archived: false }))] }),
+    library: updateLibrary(library, { ...library, bots: [...library.bots, ...added.map(bot => ({ ...bot, archived: false }))] }),
   }
 }
 
