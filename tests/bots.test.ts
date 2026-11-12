@@ -2,7 +2,7 @@ import { fixtureLibrary } from './fixtures.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Config } from '../src/config.ts'
-import { defaultLibrary, parsePlan, resolveTargets, selectMembers, validateLibrary } from '../src/bots.ts'
+import { defaultLibrary, discussionTopic, freshCoordinator, parsePlan, resolveTargets, selectMembers, validateLibrary } from '../src/bots.ts'
 import { projection } from '../src/projection.ts'
 
 test('catalog validates identity, duties, reserved names, normalized duplicates and integer limits', () => {
@@ -38,8 +38,20 @@ test('mention routing handles Chinese punctuation and rejects unknown members', 
   assert.deepEqual(resolveTargets('请设计一个方案', members), [])
   assert.deepEqual(resolveTargets('@主Bot 请派发', members), [])
   assert.deepEqual(resolveTargets('@架构师，@审阅员 请协作', members), members)
+  assert.deepEqual(resolveTargets('请协作：@架构师；@审阅员 检查', members), members)
+  assert.deepEqual(resolveTargets('联系 test@example.com', members), [])
   assert.deepEqual(resolveTargets('@reviewer @审阅员 检查', members), [members[1]])
   assert.throws(() => resolveTargets('@不存在 检查', members))
+})
+test('discussion is explicitly requested and requires at least two distinct planned participants', () => {
+  assert.equal(discussionTopic('讨论： @架构师 @审阅员 交换意见'), '@架构师 @审阅员 交换意见')
+  assert.equal(discussionTopic('Discuss: compare the options\nthen review'), 'compare the options\nthen review')
+  assert.equal(discussionTopic('讨论：  '), '')
+  assert.equal(discussionTopic('请讨论：怎么选'), undefined)
+  const plan = { tasks: members.map(member => ({ botId: member.id, task: '提出初步方案' })) }
+  assert.deepEqual(parsePlan(JSON.stringify(plan), members, members, 2), plan)
+  assert.throws(() => parsePlan(JSON.stringify({ tasks: [plan.tasks[0]] }), members, [], 2), /至少/)
+  assert.throws(() => parsePlan('{"tasks":[],"reply":"好"}', members, [], 2), /至少/)
 })
 test('plans cannot dispatch nonmembers, duplicate tasks or override explicit targets', () => {
   const plan = { tasks: [{ botId: 'reviewer', task: '检查' }] }
@@ -59,6 +71,18 @@ test('projection accepts custom member IDs and old state without a coordinator',
   custom.group.members[0].id = 'custom-id'
   custom.group.rows[0].botId = 'custom-id'
   assert.equal(projection.stateSchema.safeParse(custom).success, true)
+})
+
+test('renaming the coordinator retains the existing session and history boundary', () => {
+  const existing = { id: 'coordinator', name: 'Bots King', duty: '旧职责', sessionId: 'saved', contextRevision: 3, contextWorkspace: '/bots', historyStart: 4 }
+  const renamed = freshCoordinator(existing, 3, 15, () => assert.fail('A rename must not allocate a session'), '/bots')
+  assert.equal(renamed.name, 'KingBot')
+  assert.equal(renamed.sessionId, existing.sessionId)
+  assert.equal(renamed.historyStart, existing.historyStart)
+  assert.deepEqual(resolveTargets('@KingBot 请汇总', members), [])
+  const legacyChild = { ...members[0], name: 'KingBot' }
+  assert.deepEqual(resolveTargets('@KingBot 请检查', [legacyChild]), [legacyChild])
+  assert.equal(validateLibrary({ ...fixtureLibrary, bots: [{ ...fixtureLibrary.bots[0], name: 'KingBot' }] }).bots[0].name, 'KingBot')
 })
 
 test('mention insertion recovers empty composer and preserves nonempty drafts', async () => {

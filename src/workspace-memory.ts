@@ -33,7 +33,7 @@ export class WorkspaceMemory {
       CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,operation TEXT NOT NULL,payload TEXT NOT NULL);`)
     chmodSync(this.path, 0o600)
     if (!existsSync(join(directory, '.gitignore'))) writeFileSync(join(directory, '.gitignore'), '*\n', { mode: 0o600 })
-    if (!existsSync(join(directory, 'README.md'))) writeFileSync(join(directory, 'README.md'), '# Bots King memory\n\nking-memory.sqlite stores workspace memories, a full-text index, revision counters and an audit log. Manage entries in Bots → Bots King. Close Harness before copying the database and its WAL files. Uninstalling the plugin preserves this directory.\n', { mode: 0o600 })
+    if (!existsSync(join(directory, 'README.md'))) writeFileSync(join(directory, 'README.md'), '# KingBot memory\n\nking-memory.sqlite stores workspace memories, a full-text index, revision counters and an audit log. Manage entries in Bots → KingBot. Close Harness before copying the database and its WAL files. Uninstalling the plugin preserves this directory.\n', { mode: 0o600 })
   }
   close() { this.db.close() }
   revision() { return Number((this.db.prepare("SELECT value FROM meta WHERE key='revision'").get() as { value: string }).value) }

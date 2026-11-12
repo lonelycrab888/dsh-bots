@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs'
-export const reservedWorkspaceNotice = 'Bots King 工作区仅用于与主 Bot 对话，不能新建普通对话或群聊。请从 Bots 页面进入主 Bot 对话，或切换到其他工作区。'
+export const reservedWorkspaceNotice = 'KingBot 工作区仅用于与主 Bot 对话，不能新建普通对话或群聊。请从 Bots 页面进入主 Bot 对话，或切换到其他工作区。'
 export function isKingWorkspace(cwd: string | undefined, selected: {path:string} | null | undefined): boolean {
   if (!cwd || !selected) return false
   try { return realpathSync(cwd) === realpathSync(selected.path) } catch { return false }

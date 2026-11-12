@@ -2,7 +2,7 @@ import type { ResetOptions, PendingReset } from './reset.ts'
 import { KING_REMOTE } from './king-remote.ts'
 import { watchActivation } from './lifecycle.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { coordinatorId, coordinatorName, coordinatorDuty, validateLibrary, deleteBot, availableMembers, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
+import { coordinatorId, coordinatorName, coordinatorDuty, isCoordinatorName, validateLibrary, deleteBot, availableMembers, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
 import type { MemoryPage } from './workspace-memory.ts'
 import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
@@ -66,16 +66,16 @@ function KingCard({ snapshot, busy, models, saveModel, catalog, reload }: { snap
   }
   const disabled=busy || working || !snapshot.writable
   return <article className="dsh-bots-king">
-    <div className="dsh-bots-name"><span className="dsh-bots-avatar" data-bot="coordinator">K</span><h2>Bots King</h2><span className="dsh-bots-badge">主 Bot · 专属对话与长期记忆</span></div>
+    <div className="dsh-bots-name"><span className="dsh-bots-avatar" data-bot="coordinator">K</span><h2>KingBot</h2><span className="dsh-bots-badge">主 Bot · 专属对话与长期记忆</span></div>
     <p>与你单独讨论任务、创建并命名子 Bot。记忆保存在你选择的工作区，供主 Bot 的独聊和群聊共同检索。</p>
-    {!snapshot.workspace && <p className="dsh-bots-hint">请选择 Bots King 的专属工作区；选择工作区不会清空已有子 Bot。</p>}
-    <label className="dsh-bots-model">主 Bot 工作区<input aria-label="Bots King 工作区目录" value={path} onChange={event=>setPath(event.target.value)} placeholder="选择或填写已有文件夹的绝对路径" disabled={disabled}/></label>
+    {!snapshot.workspace && <p className="dsh-bots-hint">请选择 KingBot 的专属工作区；选择工作区不会清空已有子 Bot。</p>}
+    <label className="dsh-bots-model">主 Bot 工作区<input aria-label="KingBot 工作区目录" value={path} onChange={event=>setPath(event.target.value)} placeholder="选择或填写已有文件夹的绝对路径" disabled={disabled}/></label>
     <div className="dsh-bots-toolbar">
       <button type="button" disabled={disabled} onClick={()=>void run(async()=>{const selected=await catalog.pickDirectory();if(selected)setPath(selected)})}>选择文件夹</button>
       <button type="button" disabled={disabled || !path.trim()} onClick={()=>void run(async()=>{await catalog.setWorkspace(path.trim(),snapshot.revision);await reload()})}>{snapshot.workspace ? '切换工作区' : '启用工作区'}</button>
     </div>
     {snapshot.workspace && <><small>记忆位置：{snapshot.workspace.path}/.dsh-bots/king-memory.sqlite</small>
-      <div className="dsh-bots-toolbar"><button className="dsh-bots-primary" disabled={disabled} onClick={()=>void run(()=>catalog.openKing())}>与 Bots King 对话</button><button disabled={disabled} onClick={()=>setMemoryOpen(!memoryOpen)}>{memoryOpen?'收起记忆管理':'管理工作区记忆'}</button></div>
+      <div className="dsh-bots-toolbar"><button className="dsh-bots-primary" disabled={disabled} onClick={()=>void run(()=>catalog.openKing())}>与 KingBot 对话</button><button disabled={disabled} onClick={()=>setMemoryOpen(!memoryOpen)}>{memoryOpen?'收起记忆管理':'管理工作区记忆'}</button></div>
       <p className="dsh-bots-hint">可以说：“帮我创建两个子 Bot，一个负责架构，一个负责验收，名称和能力描述由你拟定。”此工作区仅供主 Bot 使用，不能新建普通对话或群聊；其他工作区的群聊会共享这份记忆。</p>
     </>}
     <ResetPanel snapshot={snapshot} catalog={catalog} disabled={disabled} done={async()=>{setMemoryOpen(false);await reload()}}/>
@@ -99,7 +99,7 @@ function ResetPanel({snapshot,catalog,disabled,done}:{snapshot:CatalogSnapshot;c
     {pending&&<p role="alert">上次重置尚未完成，请打开重置面板继续完成原先选择的项目。</p>}
     {open&&<div className="dsh-bots-editor">
       <strong>选择要重置的项目</strong>
-      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 Bots King 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空当前工作区全部有效及已移出记忆和旧版迁移记忆；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
+      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 KingBot 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空当前工作区全部有效及已移出记忆和旧版迁移记忆；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
       <p>只重置勾选项目。此操作不能在插件中撤销；原聊天历史、已导出的文件和其他工作区的记忆文件不会删除。重置后使用新的 Bot 执行上下文。</p>
       <label>输入 RESET 确认<input aria-label="重置确认文字" value={confirmation} disabled={busy} onChange={e=>setConfirmation(e.target.value)} autoComplete="off"/></label>
       <div className="dsh-bots-actions"><button type="button" disabled={busy} onClick={()=>setOpen(false)}>取消重置</button><button type="button" disabled={disabled||busy||confirmation!=='RESET'||!Object.values(options).some(Boolean)} onClick={()=>void submit()}>{busy?'正在重置…':pending?'继续未完成的重置':'确认重置所选数据'}</button></div>
@@ -183,7 +183,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
   }
   return <section className="dsh-bots-library dsh-bots">
     <h1>Bots</h1>
-    <p className="dsh-bots-hint">定义各成员的名称和职责。Bots King 自动加入群聊，负责分派任务与汇总结果。</p>
+    <p className="dsh-bots-hint">定义各成员的名称和职责。KingBot 自动加入群聊，负责分派任务与汇总结果。</p>
     {error && <p role="alert" className="dsh-bots-error">{error}</p>}
     {status && <p role="status">{status}</p>}
     <div className="dsh-bots-toolbar">
@@ -192,7 +192,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
         onClick={() => { setEdit({ id: `bot-${crypto.randomUUID()}`, name: '', duty: '', archived: false }); setStatus(''); setError('') }}>新建 Bot</button>
     </div>
     {!snapshot ? <p>正在加载 Bot 定义…</p> : <>
-      <KingCard snapshot={snapshot} busy={busy || !!edit} catalog={catalog} reload={load} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'Bots King 模型已保存，下次执行生效。')} />
+      <KingCard snapshot={snapshot} busy={busy || !!edit} catalog={catalog} reload={load} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'KingBot 模型已保存，下次执行生效。')} />
       <form className="dsh-bots-settings" onSubmit={event => {
         event.preventDefault()
         void save({ ...snapshot.library, maxMembers: Number(limit) }, '群聊人数上限已保存。')
@@ -202,12 +202,16 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
             disabled={busy || !!edit || !snapshot.writable} onChange={event => setLimit(event.target.value)} />
         </label>
         <button disabled={busy || !!edit || !snapshot.writable} type="submit">保存人数上限</button>
-        <small>范围 1–12，不含自动加入的 Bots King。仅影响新建群聊；已有群聊保持原成员。</small>
+        <small>范围 1–12，不含自动加入的 KingBot。仅影响新建群聊；已有群聊保持原成员。</small>
       </form>
       {edit && <form className="dsh-bots-editor" onSubmit={event => {
         event.preventDefault()
-        const found = snapshot.library.bots.some(bot => bot.id === edit.id)
-        const definitions = found ? snapshot.library.bots.map(bot => bot.id === edit.id ? edit : bot) : [...snapshot.library.bots, edit]
+        const existing = snapshot.library.bots.find(bot => bot.id === edit.id)
+        if (isCoordinatorName(edit.name) && !isCoordinatorName(existing?.name ?? '')) {
+          setError('KingBot 是主 Bot 的保留名称。')
+          return
+        }
+        const definitions = existing ? snapshot.library.bots.map(bot => bot.id === edit.id ? edit : bot) : [...snapshot.library.bots, edit]
         void save({ ...snapshot.library, bots: definitions }, 'Bot 已保存，新建群聊时可选择。')
       }}>
         <h2>{snapshot.library.bots.some(bot => bot.id === edit.id) ? '编辑 Bot' : '新建 Bot'}</h2>
@@ -280,7 +284,7 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
       <button type="button" aria-pressed={!!group || editing} disabled={saving} onClick={() => void open()}>群聊</button>
     </div>
     {editing && library && <div className="dsh-bots-picker">
-      <p>Bots King 自动加入 · 已选 {selected.length}/{library.maxMembers} 名子 Bot</p>
+      <p>KingBot 自动加入 · 已选 {selected.length}/{library.maxMembers} 名子 Bot</p>
       <fieldset disabled={saving}>
         <legend>选择群聊成员</legend>
         {library.bots.filter(bot => !bot.archived).map(bot => <label key={bot.id}>
@@ -301,11 +305,12 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
   </div>
 }
 
-function GroupTimeline({ useProjection, inputActions, mention, catalog }: {
+function GroupTimeline({ useProjection, inputActions, mention, startDiscussion, catalog }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
   inputActions: InsertionActions
   mention: (name: string, actions: InsertionActions) => void
+  startDiscussion: () => void
 }) {
   const group = useProjection('dshBots')
   const [library, setLibrary] = useState<Library>()
@@ -368,20 +373,24 @@ function GroupTimeline({ useProjection, inputActions, mention, catalog }: {
     if (log && follow.current) log.scrollTop = log.scrollHeight
   }, [group?.rows])
   if (!group) return null
+  const members = library ? availableMembers(group, library) : []
+  const coordinatorMention = members.some(member => isCoordinatorName(member.name)) ? '主Bot' : coordinatorName
 
   return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
     <div className="dsh-bots-members">
-      <strong>{group.mode==='king'?'Bots King · 专属对话':'群聊'}</strong>
-      {[...(group.coordinator ? [{ ...group.coordinator, name: coordinatorName, duty: coordinatorDuty }] : []), ...(library ? availableMembers(group, library) : [])].map(member => <button key={member.id} type="button"
+      <strong>{group.mode==='king'?'KingBot · 专属对话':'群聊'}</strong>
+      {[...(group.coordinator ? [{ ...group.coordinator, name: coordinatorName, duty: coordinatorDuty }] : []), ...members].map(member => <button key={member.id} type="button"
         title={member.duty} onPointerDown={event => event.preventDefault()} onClick={() => {
-          mention(member.name, inputActions)
+          mention(member.id === coordinatorId ? coordinatorMention : member.name, inputActions)
         }}>
         <span className="dsh-bots-avatar" data-bot={member.id}>{member.name[0]}</span>
-        @{member.name}
+        @{member.id === coordinatorId ? coordinatorMention : member.name}
       </button>)}
+      {group.mode !== 'king' && members.length >= 2 &&
+        <button type="button" onPointerDown={event => event.preventDefault()} onClick={startDiscussion}>发起讨论</button>}
     </div>
     {group.rows.length === 0
-      ? <p className="dsh-bots-hint">{group.mode==='king'?'与 Bots King 单独交流，告诉它要记住什么，或请它创建并命名子 Bot。':'直接描述任务，由 Bots King 分派并汇总；也可以 @ 指定成员。'}</p>
+      ? <p className="dsh-bots-hint">{group.mode==='king'?'与 KingBot 单独交流，告诉它要记住什么，或请它创建并命名子 Bot。':'直接描述任务或 @ 指定成员。用“讨论：”开头，让至少两名成员先各自回答，再互评一轮。'}</p>
       : <div className="dsh-bots-timeline" ref={timeline} role="log" aria-label="群聊时间线"
           onScroll={event => {
             const log = event.currentTarget
@@ -394,6 +403,7 @@ function GroupTimeline({ useProjection, inputActions, mention, catalog }: {
               <span className="dsh-bots-avatar" data-bot={bot?.id}>{bot?.name[0] ?? '你'}</span>
               <div>
                 <strong>{bot?.name ?? '你'}</strong>
+                {row.author === 'bot' && row.phase === 'discussion' && <span className="dsh-bots-message-phase"> · 讨论</span>}
                 <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
                   {row.author === 'bot' && row.status === 'working' ? row.text || '正在回复…' : row.text}
                 </p>
@@ -555,6 +565,15 @@ function mountClient(ctx: ClientContext) {
       mention(name: string, actions: InsertionActions) {
         const binding = ctx.sessions.binding(sessionId)
         if (binding) insertMention(name, actions, ctx.conversation.input.for(binding.ctx))
+      },
+      startDiscussion() {
+        const binding = ctx.sessions.binding(sessionId)
+        if (!binding) return
+        const input = ctx.conversation.input.for(binding.ctx)
+        const { draft, phase } = input.state.getSnapshot()
+        if (draft === '' && phase === 'plain') input.setDraft('讨论：')
+        else input.notify('info', '请在消息开头输入“讨论：”。')
+        input.focus()
       },
     }),
   }, GroupTimeline))

@@ -11,6 +11,7 @@ const row = z.union([
   z.object({
     id: z.string(), author: z.literal('bot'), botId, text: z.string(),
     status: z.enum(['working', 'done', 'error', 'stopped']),
+    phase: z.literal('discussion').optional(),
   }),
 ])
 const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row) })
@@ -36,7 +37,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 5,
+  stateVersion: 6,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
