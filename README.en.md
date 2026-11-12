@@ -2,18 +2,18 @@
 
 [简体中文](README.md) · **English**
 
-> **Bring Bots with different responsibilities into one conversation. Let KingBot assign tasks and bring the results together.**
+> **Bring Bots with different responsibilities into one conversation. Let KingBot moderate the discussion and summarize the results.**
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.0`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.1`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
 
-## New in v0.3.0
+## New in v0.3.1
 
-- **Group discussion.** Select **发起讨论** (Start discussion) or start a message with `Discuss:` to let members respond, review each other's replies once, and get a summary of agreements and disagreements from KingBot.
-- **Compatibility with rc.1 and rc.2.** The same package uses the runtime dependencies of either host. Replace plugin `v0.2.1` when upgrading Harness to `rc.2`.
-- **Mention matching.** Mentions now work immediately after a Chinese colon.
-- **The coordinator is now KingBot.** Existing conversations continue with the same session, members, and context.
+- **KingBot moderates group chats by default.** It listens to each contribution before choosing the next speaker, asking a follow-up question, or closing the discussion.
+- **Create groups from the dedicated conversation.** KingBot proposes members, suggests new Bots when needed, and waits for confirmation of the destination workspace. For a task, it leads the group and returns the conclusion to the original conversation.
+- **More natural Bot creation.** KingBot accepts conversational batch requests, normalizes separators in names, and skips existing members on retry.
+- **Compatibility with rc.1 and rc.2.** Existing conversations retain their identities, members, and context. An rc.1-specific `v0.2.2` release is also available.
 
 ## New in v0.2.1
 
@@ -35,8 +35,8 @@
 1. **Choose the King workspace.** Open **Bots**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
 2. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities, or ask KingBot to create one in its dedicated conversation. A fresh installation shows only **KingBot**, the coordinator, with no preset child Bots. You create all child Bots yourself; KingBot joins every group automatically.
 3. **Start a group chat.** Create a conversation in a workspace other than the dedicated King workspace. Select **群聊** (Group chat) near the message box, choose members, and click **确认成员** (Confirm members). Select **默认** (Default) to use Harness's native conversation behavior.
-4. **Send a task.** Describe your goal in the native message box and let KingBot assign the work. Use `@name` to restrict which child Bots participate in the current turn.
-5. **Read the results.** The timeline shows assignments, named member replies, and the coordinator's summary in order. Click a member below the timeline to insert a mention. The member bar scrolls horizontally when needed.
+4. **Send a task.** Describe your goal in the native message box and let KingBot moderate the discussion. Use `@name` to restrict which child Bots participate in the current turn.
+5. **Read the results.** The timeline shows moderator questions, named member replies, and the coordinator's summary in order. Click a member below the timeline to insert a mention. The member bar scrolls horizontally when needed.
 
 | What you want | Example prompt |
 | --- | --- |
@@ -46,7 +46,7 @@
 | Ask the coordinator directly | “@KingBot Summarize the conclusions so far without assigning new tasks.” |
 | Save a personal preference | “@KingBot Remember that I prefer conclusions first, followed by implementation steps.” |
 
-Architect and Reviewer are examples, not preinstalled Bots. Create and add the example members to the group before mentioning them. With no mentions, or only `@KingBot`, the coordinator decides whether and whom to delegate to. Mentioning child Bots limits this turn's delegated tasks to those members.
+Architect and Reviewer are examples, not preinstalled Bots. Create and add the example members to the group before mentioning them. With no mentions, or only `@KingBot`, KingBot chooses who to invite to speak. Mentioning child Bots limits this turn's discussion to those members.
 
 The group chat fills the available height. The timeline and member bar follow the message box's width, with scrolling inside the timeline. The native **Team, Trajectory, and Context** views remain available.
 
@@ -105,10 +105,10 @@ Add the generated package to the appropriate profile:
 
 ```sh
 # Desktop (default macOS application path)
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.3.0.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.3.1.tgz"
 
 # Web
-dsh plugin --profile web add "$PWD/dsh-bots-0.3.0.tgz"
+dsh plugin --profile web add "$PWD/dsh-bots-0.3.1.tgz"
 ```
 
 ## Talk to KingBot directly
@@ -153,27 +153,21 @@ Click **删除** (Delete) on a child Bot card, review the notice, then choose **
 
 Upgrading does not clear existing Bot definitions or personal memories. If old members reappear after reinstalling into a previously used profile, delete them from the library. A fresh profile starts with no child Bots and no preloaded long-term memories.
 
-## How KingBot assigns tasks
+## How KingBot moderates group chats
 
-<!-- Screenshot placeholder 3: A complete turn showing the user's goal, KingBot's assignments, member replies, and the final summary. Suggested path: assets/task-dispatch.png. -->
+Send a message in the group. KingBot selects one speaker at a time, reads the actual response, and decides whom to invite next or when to close. Use `@Architect @Reviewer` to limit participants. With one named Bot, that Bot responds and KingBot summarizes.
 
-KingBot interprets the goal and plans tasks around the current members' responsibilities. Child Bots run **sequentially**. Later members can refer to earlier members' results from the same turn, and KingBot summarizes at the end. Each child Bot receives at most one task per turn. The coordinator can answer simple requests directly.
+Each member can speak up to twice per discussion. Use the native stop control to cancel. A new message can continue an interrupted discussion after restart. The design draws on Grok Bot's targeted mentions and visible handoffs. [Grok Bot group chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
 
-The plugin checks the plan's members, task count, and mention restrictions. It attempts one correction for an invalid plan, then reports an error if validation still fails. Failed member tasks retain their error information for the coordinator to explain in its summary.
+## Ask KingBot to set up a group and follow through
 
-A typical turn makes one planning request, one execution request per participating member, and one summary request. Token use depends on the task and number of members. **Manually defining Bots, selecting members, and changing settings do not call a model. Asking KingBot to create members in conversation does call a model.**
+In the dedicated conversation, ask KingBot to discuss an earlier topic with a group and return a result. KingBot proposes a title, a brief, existing members, and any new Bots it thinks are needed. You can name members yourself or ask for a group without a task.
 
-Use Harness's native stop button to cancel the current turn. Tasks that have not started will not be dispatched. Restarting restores members and history without automatically rerunning interrupted tasks.
+1. Review the brief, members, and any proposed Bot names and duties.
+2. Reply `Workspace: name or path` to choose or change the workspace. If there is one eligible workspace, KingBot shows it for approval. Use the full path to distinguish duplicate names.
+3. Reply `Confirm group` to approve the destination and any proposed new Bots, or `Cancel group` to cancel.
 
-## Let members discuss
-
-Add at least two child Bots. Select **发起讨论** (Start discussion) or start a message with `Discuss:` or `讨论：`.
-
-```text
-Discuss: @Architect @Reviewer Propose separate storage options for an offline task list, then review each other's tradeoffs.
-```
-
-Mention at least two members or let KingBot choose them. After the initial answers, each successful member can respond to another member's specific point with access to the initial answers and earlier reviews. Each participant gets one extra reply, labeled **讨论** on the same timeline. If fewer than two members answer successfully, KingBot summarizes the available results. The design draws on Grok Bot's targeted mentions and visible handoffs. [Grok Bot group chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
+KingBot adds an **打开群聊** (Open group) button to the original conversation. When the approved group has a task, KingBot moderates the discussion and posts the resulting conclusion there. A group created without a task waits for a message.
 
 ## How memory works
 
@@ -200,7 +194,7 @@ Removing an entry stops future shared-memory injection but does not delete the o
 
 ## Current scope
 
-- **Text group chats and sequential assignments.** Bot tool calls are disabled in this version. Bots cannot directly run terminal commands, edit files, or use search tools through this plugin. Parallel dispatch, attachments, Markdown rendering, streaming replies, and workflow dependency graphs are not yet supported.
+- **Text group chats.** Bot tool calls are disabled. Group discussion supports text messages and replies.
 - **Host Agent runtime.** KingBot and child Bots use separate persistent Agent sessions. Using the host's Agent runtime does not enable all tools or change global Agent Loop settings.
 - **Native controls.** The plugin uses the native message box, stop control, and model configuration, and preserves native views such as Team. Enhancement Switches is not required.
 - **History compatibility.** Two-Bot group histories from early development prototypes are supported. Sending another message in an old group adds KingBot automatically. The legacy `@主Bot` mention remains supported.
@@ -239,6 +233,6 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` uses Chrome, the Playwright CLI, and a local model stub to check installation, the KingBot workspace, mention routing, peer discussion, resuming after restart, and native conversations in an isolated Web profile.
+`npm run smoke` uses Chrome, the Playwright CLI, and a local model stub to check installation, the KingBot workspace, batch creation, workspace confirmation, dynamic moderation, returning results, and resuming after restart in an isolated Web profile.
 
 The v0.2.1 reset feature was checked through the UI in an isolated profile with synthetic data, including separate member, memory, and association resets and recovery from a missing workspace directory.

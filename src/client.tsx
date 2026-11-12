@@ -183,7 +183,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
   }
   return <section className="dsh-bots-library dsh-bots">
     <h1>Bots</h1>
-    <p className="dsh-bots-hint">定义各成员的名称和职责。KingBot 自动加入群聊，负责分派任务与汇总结果。</p>
+    <p className="dsh-bots-hint">定义各成员的名称和职责。KingBot 自动加入群聊，负责主持讨论与汇总结果。</p>
     {error && <p role="alert" className="dsh-bots-error">{error}</p>}
     {status && <p role="status">{status}</p>}
     <div className="dsh-bots-toolbar">
@@ -305,12 +305,12 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
   </div>
 }
 
-function GroupTimeline({ useProjection, inputActions, mention, startDiscussion, catalog }: {
+function GroupTimeline({ useProjection, inputActions, mention, openSession, catalog }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
   inputActions: InsertionActions
   mention: (name: string, actions: InsertionActions) => void
-  startDiscussion: () => void
+  openSession: (id: string) => void
 }) {
   const group = useProjection('dshBots')
   const [library, setLibrary] = useState<Library>()
@@ -386,24 +386,24 @@ function GroupTimeline({ useProjection, inputActions, mention, startDiscussion, 
         <span className="dsh-bots-avatar" data-bot={member.id}>{member.name[0]}</span>
         @{member.id === coordinatorId ? coordinatorMention : member.name}
       </button>)}
-      {group.mode !== 'king' && members.length >= 2 &&
-        <button type="button" onPointerDown={event => event.preventDefault()} onClick={startDiscussion}>发起讨论</button>}
     </div>
     {group.rows.length === 0
-      ? <p className="dsh-bots-hint">{group.mode==='king'?'与 KingBot 单独交流，告诉它要记住什么，或请它创建并命名子 Bot。':'直接描述任务或 @ 指定成员。用“讨论：”开头，让至少两名成员先各自回答，再互评一轮。'}</p>
+      ? <p className="dsh-bots-hint">{group.brief ?? (group.mode==='king'?'可以请 KingBot 创建子 Bot、筹建群聊，或把任务交给群聊讨论。':'发消息后，KingBot 会根据成员的发言主持讨论。可以用 @ 指定参与成员。')}</p>
       : <div className="dsh-bots-timeline" ref={timeline} role="log" aria-label="群聊时间线"
           onScroll={event => {
             const log = event.currentTarget
             follow.current = log.scrollHeight - log.clientHeight - log.scrollTop < 48
           }}>
+          {group.brief && <p className="dsh-bots-hint">{group.brief}</p>}
           {group.rows.map(row => {
-            if (row.author === 'notice') return <p key={row.id} role="status" className="dsh-bots-error">{row.text}</p>
+            if (row.author === 'notice') return row.sessionId
+              ? <p key={row.id} role="status" className="dsh-bots-hint">{row.text} <button type="button" onClick={() => openSession(row.sessionId!)}>打开群聊</button></p>
+              : <p key={row.id} role="status" className="dsh-bots-error">{row.text}</p>
             const bot = row.author === 'bot' ? (row.botId === coordinatorId ? { id: coordinatorId, name: coordinatorName } : group.members.find(member => member.id === row.botId)) : undefined
             return <article key={row.id} className="dsh-bots-message" data-author={row.author}>
               <span className="dsh-bots-avatar" data-bot={bot?.id}>{bot?.name[0] ?? '你'}</span>
               <div>
                 <strong>{bot?.name ?? '你'}</strong>
-                {row.author === 'bot' && row.phase === 'discussion' && <span className="dsh-bots-message-phase"> · 讨论</span>}
                 <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
                   {row.author === 'bot' && row.status === 'working' ? row.text || '正在回复…' : row.text}
                 </p>
@@ -562,18 +562,10 @@ function mountClient(ctx: ClientContext) {
     name: 'conversation.input.dock', id: 'dsh-bots-timeline', order: 90,
     inject: (sessionId: string) => ({
       catalog,
+      openSession: (id: string) => ctx.uiWorkspace.openSession(id),
       mention(name: string, actions: InsertionActions) {
         const binding = ctx.sessions.binding(sessionId)
         if (binding) insertMention(name, actions, ctx.conversation.input.for(binding.ctx))
-      },
-      startDiscussion() {
-        const binding = ctx.sessions.binding(sessionId)
-        if (!binding) return
-        const input = ctx.conversation.input.for(binding.ctx)
-        const { draft, phase } = input.state.getSnapshot()
-        if (draft === '' && phase === 'plain') input.setDraft('讨论：')
-        else input.notify('info', '请在消息开头输入“讨论：”。')
-        input.focus()
       },
     }),
   }, GroupTimeline))

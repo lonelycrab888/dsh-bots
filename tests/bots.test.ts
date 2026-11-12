@@ -43,15 +43,12 @@ test('mention routing handles Chinese punctuation and rejects unknown members', 
   assert.deepEqual(resolveTargets('@reviewer @审阅员 检查', members), [members[1]])
   assert.throws(() => resolveTargets('@不存在 检查', members))
 })
-test('discussion is explicitly requested and requires at least two distinct planned participants', () => {
+test('legacy discussion prefixes still accept plain topic text', () => {
   assert.equal(discussionTopic('讨论： @架构师 @审阅员 交换意见'), '@架构师 @审阅员 交换意见')
   assert.equal(discussionTopic('Discuss: compare the options\nthen review'), 'compare the options\nthen review')
   assert.equal(discussionTopic('讨论：  '), '')
   assert.equal(discussionTopic('请讨论：怎么选'), undefined)
-  const plan = { tasks: members.map(member => ({ botId: member.id, task: '提出初步方案' })) }
-  assert.deepEqual(parsePlan(JSON.stringify(plan), members, members, 2), plan)
-  assert.throws(() => parsePlan(JSON.stringify({ tasks: [plan.tasks[0]] }), members, [], 2), /至少/)
-  assert.throws(() => parsePlan('{"tasks":[],"reply":"好"}', members, [], 2), /至少/)
+
 })
 test('plans cannot dispatch nonmembers, duplicate tasks or override explicit targets', () => {
   const plan = { tasks: [{ botId: 'reviewer', task: '检查' }] }
@@ -62,7 +59,7 @@ test('plans cannot dispatch nonmembers, duplicate tasks or override explicit tar
   assert.throws(() => parsePlan(JSON.stringify({ tasks: [plan.tasks[0], plan.tasks[0]] }), members))
   assert.throws(() => parsePlan('{"tasks":[]}', members))
   assert.throws(() => parsePlan('not json', members))
-  assert.deepEqual(parsePlan('{"tasks":[],"reply":"你好"}', members), { tasks: [], reply: '你好' })
+  assert.deepEqual(parsePlan('{"reply":"你好"}', members), { tasks: [], reply: '你好' })
 })
 test('projection accepts custom member IDs and old state without a coordinator', () => {
   const old = { inherited: 0, group: { members, rows: [{ id: 'old', author: 'bot', botId: 'architect', text: '历史', status: 'done' }] } }

@@ -48,9 +48,10 @@ export function validateLibrary(value: unknown): Library {
 }
 export interface Member { id: BotId; name: string; duty: string; sessionId: string; contextWorkspace?: string; contextRevision?: number; historyStart?: number }
 export type Row =
-  | { id: string; author: 'user' | 'notice'; text: string }
-  | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped'; phase?: 'discussion' }
-export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[] }
+  | { id: string; author: 'user'; text: string }
+  | { id: string; author: 'notice'; text: string; sessionId?: string }
+  | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' }
+export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string }
 
 /** An empty result asks the coordinator to select members. */
 export function resolveTargets(text: string, members: readonly Member[]): Member[] {
@@ -77,7 +78,7 @@ export function selectMembers(ids: string[], library: { readonly maxMembers: num
     return { id: bot.id, name: bot.name, duty: bot.duty, sessionId: previous.find(member => member.id === id)?.sessionId ?? uuid() }
   })
 }
-export interface Plan { tasks: { botId: string; task: string }[]; reply?: string; memoryActions?: unknown; botActions?: unknown }
+export interface Plan { tasks: { botId: string; task: string }[]; reply?: string; memoryActions?: unknown; botActions?: unknown; groupAction?: unknown }
 export function discussionTopic(text: string): string | undefined {
   return /^\s*(?:讨论|discuss)\s*[:：]([\s\S]*)$/iu.exec(text)?.[1].trim()
 }
@@ -85,13 +86,17 @@ export function discussionTopic(text: string): string | undefined {
 export function parsePlan(output: string, members: Member[], required: Member[] = [], minTasks = 0): Plan {
   const source = output.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
   let input: unknown
-  try { input = JSON.parse(source) } catch { throw new Error('KingBot 没有返回有效的任务分派 JSON。') }
-  const plan = z.object({ tasks: z.array(z.object({ botId: z.string(), task: z.string().trim().min(1).max(6000) })).max(members.length), reply: z.string().max(12000).optional(), memoryActions: z.unknown().optional(), botActions: z.unknown().optional() }).parse(input)
+  try { input = JSON.parse(source) } catch { throw new Error('KingBot 没有返回有效的 JSON。') }
+  const parsed = z.object({ tasks: z.array(z.object({ botId: z.string(), task: z.string().trim().min(1).max(6000) })).max(members.length).default([]), reply: z.string().max(12000).optional(), memoryActions: z.unknown().optional(), botActions: z.unknown().optional(), groupAction: z.unknown().optional() }).safeParse(input)
+  if (!parsed.success) throw new Error('KingBot 的回复格式有误，需要提供任务列表或文字答复')
+  const plan = parsed.data
+  if (plan.botActions == null || (Array.isArray(plan.botActions) && plan.botActions.length === 0)) delete plan.botActions
+  if (plan.groupAction == null) delete plan.groupAction
   const ids = plan.tasks.map(task => task.botId)
   if (new Set(ids).size !== ids.length || ids.some(id => !members.some(member => member.id === id))) throw new Error('KingBot 分派了重复或未加入群聊的成员。')
   if (required.length && (required.some(member => !ids.includes(member.id)) || ids.some(id => !required.some(member => member.id === id)))) throw new Error('任务分派必须严格覆盖用户点名的成员。')
   if (ids.length < minTasks) throw new Error('讨论至少需要给两名子 Bot 分派任务。')
-  if (!ids.length && !plan.reply?.trim()) throw new Error('KingBot 未提供任务或直接答复。')
+  if (!ids.length && !plan.reply?.trim() && plan.botActions === undefined && plan.groupAction === undefined) throw new Error('KingBot 未提供任务或直接答复。')
   return plan
 }
 
@@ -113,16 +118,68 @@ export function redactDeletedBotIds(text: string, ids: readonly string[], replac
 
 export function freshCoordinator(existing: Member | undefined, revision: number, rowCount: number, uuid: () => string, workspace?: string): Member {
   if (existing && existing.contextWorkspace === workspace && (existing.contextRevision ?? 0) === revision) return { ...existing, name: coordinatorName, duty: coordinatorDuty }
-  return { id: coordinatorId, name: coordinatorName, duty: coordinatorDuty, sessionId: uuid(), contextRevision: revision, contextWorkspace: workspace, historyStart: rowCount }
+  return { id: coordinatorId, name: coordinatorName, duty: coordinatorDuty, sessionId: uuid(), contextRevision: revision, ...(workspace === undefined ? {} : { contextWorkspace: workspace }), historyStart: rowCount }
 }
 
+const creationVerb = /创建|新建|建立|搭建|设立|新增|添加|增加|建(?=个|一|几|两|[二三四五六\d]|下|好|起来)|(?:帮我|给我)(?:加|配|弄|来)(?=一|个|几|两|[二三四五六\d])|\b(?:create|add|set up|make|build)\b/giu
+const creationTarget = /智能体|成员|助手|助理|代理|\b(?:bots?|agents?|assistants?)\b|(?:这|那)(?:些|几个|两位|两个)|(?:上面|上述|刚才)(?:的|提到的)?(?:几|两|[二三四五六\d])/iu
+const indirectPrefix = /(?:不要|不用|不必|无需|不想|不打算|不需要|暂不|别|如何|怎么|怎样|是否|教我|假设|举例)[^，,]*$|\b(?:do not|don.t|never|how (?:do|to|can)|whether to|show me how to)\b[^,]*$/iu
+
+export function isBotCreationRequest(user: string): boolean {
+  const text = user.normalize('NFKC').replace(/\x60{3}[\s\S]*?(?:\x60{3}|$)|^\s*>[^\n]*/gmu, ' ')
+    .replace(/“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』|"[^"\n]*"|\x60[^\x60\n]*\x60/gu, quote =>
+      [...quote.matchAll(creationVerb)].length ? ' ' : quote)
+  return text.split(/[。！？!?；;\n]/u).some(sentence => creationTarget.test(sentence) &&
+    [...sentence.matchAll(creationVerb)].some(match => !indirectPrefix.test(sentence.slice(0, match.index))))
+}
+
+function cleanRequestedName(name: string) {
+  const normalized = name.normalize('NFKC').trim()
+  return /^[\p{L}\p{N}_-]+$/u.test(normalized)
+    ? normalized
+    : normalized.replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '')
+}
+
+export const requestedBotDefinition = z.object({
+  name: z.string().transform(cleanRequestedName).pipe(definition.shape.name),
+  duty: definition.shape.duty,
+})
+const requestedBots = z.array(requestedBotDefinition.extend({
+  evidence: z.string().trim().min(3).max(2000),
+})).min(1).max(6)
+
 export function createRequestedBots(library: Library, raw: unknown, user: string, uuid: () => string) {
-  const actions = z.array(z.object({ name: definition.shape.name, duty: definition.shape.duty, evidence: z.string().trim().min(3).max(2000) })).min(1).max(6).parse(raw)
-  if (!/(创建|新建|新增|增加|create|add)/iu.test(user) || !/(bot|agent|智能体|成员|助手)/iu.test(user)) throw new Error('只有用户明确要求创建 Bot 时才会新增成员。')
-  const created = actions.map(action => {
-    if (!user.normalize('NFKC').includes(action.evidence.normalize('NFKC'))) throw new Error('创建 Bot 缺少本轮用户原文依据。')
-    if (isCoordinatorName(action.name)) throw new Error('KingBot 是主 Bot 的保留名称。')
-    return { id: `bot-${uuid()}`, name: action.name, duty: action.duty, archived: false }
-  })
-  return { library: validateLibrary({ ...library, bots:[...library.bots,...created] }), created }
+  if (!isBotCreationRequest(user)) throw new Error('本轮还没有明确的创建请求。可以说“帮我建立一个资料整理助手”')
+  const parsed = requestedBots.safeParse(raw)
+  if (!parsed.success) {
+    const [issue] = parsed.error.issues
+    const [index, field] = issue.path
+    const requirements = {
+      name: '名称需为 1–24 个字符，支持中英文、数字、下划线和连字符',
+      duty: '职责需为 1–6000 个字符的说明',
+      evidence: '请引用本轮创建请求的原话',
+    } as const
+    const detail = requirements[field as keyof typeof requirements]
+    throw new Error(typeof index === 'number' && detail ? `第 ${index + 1} 个子 Bot：${detail}` : '每次可创建 1–6 个子 Bot')
+  }
+  const userText = user.normalize('NFKC')
+  const existing = new Set<Bot>()
+  const byName = new Map(library.bots.map(bot => [normalizeName(bot.name), bot]))
+  const pending = new Map<string, { name: string; duty: string }>()
+  for (const { name, duty, evidence } of parsed.data) {
+    if (!userText.includes(evidence.normalize('NFKC'))) throw new Error('创建 Bot 缺少本轮用户原文依据')
+    const key = normalizeName(name)
+    if (isCoordinatorName(name) || key === normalizeName('主Bot')) throw new Error(`“${name}”是主 Bot 的保留名称`)
+    const saved = byName.get(key)
+    if (saved) {
+      existing.add(saved)
+      continue
+    }
+    const other = pending.get(key)
+    if (other && other.duty !== duty) throw new Error(`“${name}”对应多项职责，请为不同子 Bot 使用不同名称`)
+    pending.set(key, other ?? { name, duty })
+  }
+  if (library.bots.length + pending.size > 100) throw new Error('Bot 定义库最多保存 100 个成员（含已停用成员），请先清理不再使用的成员')
+  const created = Array.from(pending.values(), bot => ({ ...bot, id: `bot-${uuid()}`, archived: false }))
+  return { library: validateLibrary({ ...library, bots: [...library.bots, ...created] }), created, existing: [...existing] }
 }

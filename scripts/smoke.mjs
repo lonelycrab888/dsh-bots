@@ -17,6 +17,7 @@ const docs = join(dir, 'documents')
 const patch = join(dir, 'smoke.patch.yml')
 const requestsPath = join(dir, 'fixture-model.jsonl')
 let host
+let hostOutput = ''
 
 function run(command, args, cwd = root) {
   return execFileSync(command, args, { cwd, env, encoding: 'utf8', timeout: 60_000 })
@@ -33,8 +34,8 @@ async function startHost() {
     cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'],
   })
   let output = ''
-  host.stdout.on('data', data => { output += data })
-  host.stderr.on('data', data => { output += data })
+  host.stdout.on('data', data => { output += data; hostOutput += data })
+  host.stderr.on('data', data => { output += data; hostOutput += data })
   const deadline = Date.now() + 20_000
   while (host.exitCode === null && Date.now() < deadline) {
     const url = /dsh web: (https?:\/\/\S+)/.exec(output)?.[1]
@@ -101,6 +102,7 @@ try {
 
   browser('open', await startHost(), '--browser=chrome')
   browser('run-code', (async page => {
+    const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE
     const preview = page.getByRole('button', { name: /^(继续|Continue)$/ })
     await page.getByRole('button', { name: 'Bots', exact: true }).waitFor()
     if (await preview.isVisible()) await preview.click()
@@ -129,57 +131,55 @@ try {
     await editor.fill('@架构师 给出架构说明')
     await editor.press('Enter')
     const log = page.getByRole('log', { name: '群聊时间线' })
-    await log.getByText('架构师 | 看到了架构说明', { exact: true }).waitFor()
-    await log.getByText('KingBot | 汇总完成', { exact: true }).waitFor()
-    if (await log.locator('article[data-author=bot]').count() !== 3) throw new Error('First turn should contain plan, targeted reply and summary')
+    const summary = log.getByText(upgrading ? 'KingBot | 汇总完成' : 'KingBot | 讨论汇总完成', { exact: true })
+    await log.getByText(upgrading ? '架构师 | 看到了架构说明' : '架构师 | 初步观点', { exact: true }).waitFor()
+    await summary.waitFor()
+    if (await log.locator('article[data-author=bot]').count() !== 3) throw new Error('First turn should contain an invitation, targeted reply and summary')
 
     await editor.fill('@审阅员 请点评上一条')
     await page.getByRole('button', { name: /^(发送消息|Send message)$/i }).click()
-    await log.getByText('审阅员 | 看到了架构说明', { exact: true }).waitFor()
-    await log.getByText('KingBot | 汇总完成', { exact: true }).nth(1).waitFor()
-    if (await log.locator('article[data-author=bot]').count() !== 6) throw new Error('Second turn should add plan, targeted reply and summary')
-    if (process.env.DSH_BOTS_SMOKE_UPGRADE) return
+    await log.getByText(upgrading ? '审阅员 | 看到了架构说明' : '审阅员 | 初步观点', { exact: true }).waitFor()
+    await summary.nth(1).waitFor()
+    if (await log.locator('article[data-author=bot]').count() !== 6) throw new Error('Second turn should add an invitation, targeted reply and summary')
+    if (upgrading) return
 
-    await page.getByRole('button', { name: '发起讨论' }).click()
-    await editor.getByText('讨论：', { exact: true }).waitFor()
-    await editor.fill('讨论：@架构师 只有一个点名')
+    await editor.fill('@架构师 @审阅员 讨论架构建议')
     await editor.press('Enter')
-    await log.getByText(/讨论至少需要两名子 Bot/).waitFor()
-
-    await editor.fill('讨论：@架构师 @审阅员 各给建议，然后互评')
-    await editor.press('Enter')
-    await log.getByText('架构师 | 点评 审阅员', { exact: true }).waitFor()
-    await log.getByText('审阅员 | 点评 架构师', { exact: true }).waitFor()
-    await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
-    if (await log.getByText('· 讨论', { exact: true }).count() !== 2) throw new Error('Both peer replies must be labeled as discussion')
+    await log.getByText('架构师 | 回应 审阅员', { exact: true }).waitFor()
+    await log.getByText('审阅员 | 回应 架构师', { exact: true }).waitFor()
+    await summary.nth(2).waitFor()
+    await page.getByRole('button', { name: /停止生成|Stop generating/i }).waitFor({ state: 'hidden' })
+    if (await log.getByText('· 讨论', { exact: true }).count()) throw new Error('Discussion must not add a badge')
   }).toString().replace('process.env.DSH_BOTS_SMOKE_WORKSPACE', JSON.stringify(docs)).replace('process.env.DSH_BOTS_SMOKE_UPGRADE', String(!!upgradeFrom)))
 
   const beforeRestart = await requests()
   const normalRoles = ['KingBot', '架构师', 'KingBot', 'KingBot', '审阅员', 'KingBot']
-  const discussionRoles = upgradeFrom ? [] : ['KingBot', '架构师', '审阅员', '架构师', '审阅员', 'KingBot']
+  const discussionRoles = upgradeFrom ? [] : ['KingBot', '审阅员', 'KingBot', '架构师', 'KingBot', '审阅员', 'KingBot', 'KingBot']
   assert.deepEqual(beforeRestart.map(item => item.role), [...normalRoles, ...discussionRoles])
   assert.ok(beforeRestart.every(item => item.tools.length === 0))
-  assert.match(beforeRestart[4].input, /架构师 \| 看到了架构说明/u)
+  assert.match(beforeRestart[4].input, upgradeFrom ? /架构师 \| 看到了架构说明/u : /架构师 \| 初步观点/u)
   if (!upgradeFrom) {
-    const peerReviews = beforeRestart.filter(item => item.review).map(item => JSON.parse(JSON.parse(item.input).最新用户消息))
-    assert.equal(peerReviews.length, 2)
-    assert.deepEqual(peerReviews[0].本轮初答.map(item => item.name), ['架构师', '审阅员'])
-    assert.deepEqual(peerReviews[0].已有互评, [])
-    assert.match(peerReviews[1].已有互评[0].text, /架构师 \| 点评 审阅员/u)
+    const moderatorTurns = beforeRestart.slice(normalRoles.length).filter(item => item.moderator).map(item => JSON.parse(JSON.parse(item.input).最新用户消息))
+    assert.equal(moderatorTurns.length, 4)
+    assert.deepEqual(moderatorTurns[0].已有讨论, [])
+    assert.equal(moderatorTurns[1].已有讨论[0].text, '审阅员 | 初步观点')
+    assert.equal(moderatorTurns[2].已有讨论[1].text, '架构师 | 回应 审阅员')
+    assert.equal(moderatorTurns[3].允许收束, true)
     const summary = JSON.parse(JSON.parse(beforeRestart.at(-1).input).最新用户消息)
-    assert.deepEqual(summary.本轮互评.map(item => item.name), ['架构师', '审阅员'])
+    assert.deepEqual(summary.已有讨论.map(item => item.name), ['审阅员', '架构师', '审阅员'])
   }
   await stopHost()
   const previous = upgradeFrom ? await savedIdentities() : undefined
   if (previous) {
-    assert.equal(beforeRestart[0].speaker, 'Bots King')
-    assert.equal(previous.king.title, 'Bots King')
+    assert.equal(beforeRestart[0].speaker, previous.king.title)
+    assert.match(previous.king.title, /^(Bots King|KingBot)$/)
     run('dsh', ['plugin', '--profile', 'web', 'add', join(dir, archive)])
   }
 
   browser('goto', await startHost())
   browser('run-code', (async page => {
     const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE
+    await page.getByRole('button', { name: 'Bots', exact: true }).waitFor()
     if (upgrading) {
       await page.getByRole('button', { name: 'Bots', exact: true }).click()
       await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
@@ -187,23 +187,23 @@ try {
     }
     const workspace = page.getByRole('treeitem', { name: /^(默认工作区|Default workspace)(?:\s|$)/i })
     await workspace.waitFor()
-    if (await workspace.getAttribute('aria-expanded') !== 'true') await workspace.click()
-    await page.getByRole('treeitem', { name: /群聊 · @架构师 给出架构说明/ }).click()
+    const conversation = page.getByRole('treeitem', { name: /群聊 · @架构师 给出架构说明/ })
+    if (!await conversation.isVisible() && await workspace.getAttribute('aria-expanded') !== 'true') await workspace.click()
+    await conversation.click()
     const log = page.getByRole('log', { name: '群聊时间线' })
     await log.getByText('KingBot', { exact: true }).first().waitFor()
     if (upgrading) {
       await log.getByText('KingBot | 汇总完成', { exact: true }).nth(1).waitFor()
       if (await log.locator('article[data-author=bot]').count() !== 6) throw new Error('Upgrade should restore the old replies')
     } else {
-      await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
-      if (await log.locator('article[data-author=bot]').count() !== 12) throw new Error('Restart should restore dispatch and discussion')
-      if (await log.getByText('· 讨论', { exact: true }).count() !== 2) throw new Error('Restart should retain discussion labels')
+      await log.getByText('KingBot | 讨论汇总完成', { exact: true }).nth(2).waitFor()
+      if (await log.locator('article[data-author=bot]').count() !== 13) throw new Error('Restart should restore discussion')
     }
 
     const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
     await editor.fill('@审阅员 重启后继续')
     await editor.press('Enter')
-    await log.getByText('KingBot | 汇总完成', { exact: true }).nth(2).waitFor()
+    await log.getByText('KingBot | 讨论汇总完成', { exact: true }).nth(upgrading ? 0 : 3).waitFor()
 
     await page.getByRole('button', { name: /^(新建会话|New session)$/i }).last().click()
     await page.getByRole('button', { name: '默认', exact: true, pressed: true }).waitFor()
@@ -215,15 +215,87 @@ try {
 
   const afterRestart = await requests()
   assert.deepEqual(afterRestart.map(item => item.role), [...normalRoles, ...discussionRoles, 'KingBot', '审阅员', 'KingBot', '默认'])
-  assert.match(afterRestart.at(-3).input, previous ? /请点评上一条/u : /架构师 \| 点评 审阅员/u)
+  assert.match(afterRestart.at(-3).input, previous ? /请点评上一条/u : /架构师 \| 回应 审阅员/u)
   assert.equal(afterRestart.at(-4).speaker, 'KingBot')
   assert.equal(afterRestart.at(-1).input, '普通会话测试')
   if (previous) {
     assert.deepEqual(await savedIdentities(), { ...previous, king: { ...previous.king, title: 'KingBot' } })
     console.log(`Verified upgrade, KingBot rename, and preserved session identities on DSH ${runtime}.`)
   } else {
-    console.log(`Verified named dispatch, peer discussion, restart, and default chat on DSH ${runtime}.`)
+    browser('run-code', (async page => {
+      await page.getByRole('button', { name: 'Bots', exact: true }).click()
+      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
+      await page.getByText('KingBot · 专属对话', { exact: true }).waitFor()
+      const log = page.getByRole('log', { name: '群聊时间线' })
+      const replies = log.locator('article[data-author=bot] p')
+      const send = async text => {
+        const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
+        await editor.fill(text)
+        await editor.press('Enter')
+      }
+      await send('方案/流程助手、记录助手你都帮我建立一下')
+      await replies.last().filter({ hasText: /已创建子 Bot.*方案-流程助手/s }).waitFor()
+      await send('方案/流程助手、记录助手你都帮我建立一下')
+      await replies.last().filter({ hasText: /已存在，保留原设置.*方案-流程助手/s }).waitFor()
+      await send('资料核对助手你帮我建立一下')
+      await replies.last().filter({ hasText: /已创建子 Bot.*资料核对助手/s }).waitFor()
+
+      await send('请帮我完成离线清单方案，让合适的成员讨论后给我结论')
+      await replies.last().filter({ hasText: /建群方案：清单设计讨论.*建议新建 离线方案审阅员.*目标工作区/s }).waitFor()
+      const workspace = (await replies.last().textContent()).match(/目标工作区：([^（\n]+)/)[1]
+      if (await page.getByRole('button', { name: '打开群聊' }).count()) throw new Error('A proposal must not create the group before confirmation')
+      await send('工作区：不存在的测试目录')
+      await replies.last().filter({ hasText: /请用「工作区：完整路径」/ }).waitFor()
+      await send('确认建群')
+      await replies.last().filter({ hasText: /请先确认目标工作区/ }).waitFor()
+      await send(`工作区：${workspace}`)
+      await replies.last().filter({ hasText: /同意在该工作区建群并创建上述新 Bot/ }).waitFor()
+      await send('确认建群')
+      await replies.last().filter({ hasText: /群聊结论：.*KingBot \| 讨论汇总完成/s }).waitFor()
+      const opened = page.getByRole('button', { name: '打开群聊', exact: true })
+      if (await opened.count() !== 1) throw new Error('Confirmation must create exactly one group')
+      await send('确认建群')
+      await replies.last().filter({ hasText: /当前没有待确认的建群方案/ }).waitFor()
+      await opened.click()
+      await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
+      await log.getByText('架构师 | 回应 离线方案审阅员', { exact: true }).waitFor()
+      await log.getByText('完成离线清单方案，比较同步与纯本地方案', { exact: true }).waitFor()
+      await page.getByRole('button', { name: 'Bots', exact: true }).click()
+      await page.getByRole('heading', { name: '离线方案审阅员', exact: true }).waitFor()
+      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
+      await send('请新建空白验收群聊，成员为 @架构师')
+      await replies.last().filter({ hasText: /建群方案：空白验收群.*本次只建立群聊/s }).waitFor()
+      await send('确认建群')
+      await replies.last().filter({ hasText: /群成员已就位/ }).waitFor()
+    }).toString())
+    await stopHost()
+    browser('goto', await startHost())
+    browser('run-code', (async page => {
+      const workspace = page.getByRole('treeitem', { name: /^(默认工作区|Default workspace)(?:\s|$)/i })
+      await workspace.waitFor()
+      if (await workspace.getAttribute('aria-expanded') !== 'true') await workspace.click()
+      await page.getByRole('treeitem', { name: '群聊 · 空白验收群' }).click()
+      const room = page.getByRole('region', { name: '群聊', exact: true })
+      await room.getByText('仅创建群聊', { exact: true }).waitFor()
+      const log = room.getByRole('log', { name: '群聊时间线' })
+      if (await log.count()) throw new Error('An empty group must wait for its first message')
+      const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
+      await editor.fill('检查空白群重启后能否发言')
+      await editor.press('Enter')
+      await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
+    }).toString())
+    const completed = await requests()
+    const recovery = completed.filter(item => item.role === 'KingBot' && item.input.includes('上次回复校验失败：第 1 个子 Bot'))
+    assert.equal(recovery.length, 1)
+    const delegated = completed.filter(item => item.moderator && item.input.includes('完成离线清单方案'))
+    assert.ok(delegated.length >= 3)
+    assert.ok(completed.filter(item => item.role !== '默认').every(item => item.tools.length === 0))
+    console.log(`Verified natural Bot creation, dynamic discussion, confirmed group placement, and return of results on DSH ${runtime}.`)
   }
+} catch (error) {
+  const diagnostics = hostOutput.split('\n').filter(line => /warn|error|dsh-bots|checkpoint/i.test(line)).slice(-20).join('\n')
+  if (diagnostics) console.error(diagnostics.replace(/token=[\w-]+/g, 'token=[redacted]'))
+  throw error
 } finally {
   try { browser('close') } catch {}
   await stopHost()

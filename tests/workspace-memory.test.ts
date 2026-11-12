@@ -64,14 +64,28 @@ test('memory storage rejects a symlink escape from the chosen workspace',()=>{
   try{symlinkSync(outside,join(path,'.dsh-bots'));assert.throws(()=>new WorkspaceMemory(path));assert.throws(()=>new WorkspaceMemory('relative-path'))}
   finally{rmSync(path,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true})}
 })
-test('King creates user-requested Bots with fresh IDs and rejects duplicates or ungrounded requests',()=>{
+test('King creates user-requested Bots with fresh IDs and skips duplicates on retry',()=>{
   const user='请创建两个子bot，一个负责架构，一个负责审阅。'
   let id=0
   const actions=[{name:'架构顾问',duty:'负责技术方案与模块边界',evidence:user},{name:'质量顾问',duty:'负责审阅与验收',evidence:user}]
   const result=createRequestedBots(defaultLibrary,actions,user,()=>String(++id))
   assert.equal(result.created.length,2);assert.notEqual(result.created[0].id,result.created[1].id)
-  assert.throws(()=>createRequestedBots(result.library,actions,user,()=>String(++id)))
+  const retry = createRequestedBots(result.library, actions, user, () => assert.fail('Existing Bots must keep their identity'))
+  assert.deepEqual(retry.created, [])
+  assert.deepEqual(retry.existing, result.created)
   assert.throws(()=>createRequestedBots(defaultLibrary,actions,'讲个笑话',()=>String(++id)))
   assert.throws(()=>createRequestedBots(defaultLibrary,[{...actions[0],evidence:'不存在的创建指令'}],user,()=>String(++id)))
   assert.equal(defaultLibrary.bots.length,0)
+})
+
+test('King accepts colloquial batches and normalizes names while requiring a direct request', () => {
+  const user = '方案/流程助手、资料整理助手、结果复核助手你都帮我建立一下'
+  const actions = ['方案/流程助手', '资料整理助手', '结果复核助手'].map(name => ({ name, duty: '协助整理合成任务', evidence: user }))
+  let id = 0
+  const result = createRequestedBots(defaultLibrary, actions, user, () => String(++id))
+  assert.deepEqual(result.created.map(bot => bot.name), ['方案-流程助手', '资料整理助手', '结果复核助手'])
+  for (const request of ['不要建立一个资料整理助手', '如何创建助手', '示例：“帮我建立一个助手”', '> 帮我建立一个助手\n只看上面的示例']) {
+    assert.throws(() => createRequestedBots(defaultLibrary, [{ ...actions[0], evidence: request }], request, () => assert.fail()), /明确的创建请求/)
+  }
+  assert.throws(() => createRequestedBots(defaultLibrary, [{ ...actions[0], name: '///' }], user, () => assert.fail()), /第 1 个子 Bot：名称/)
 })

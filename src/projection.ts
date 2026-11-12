@@ -3,19 +3,20 @@ import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-projection/types'
 import type { Group, Member } from './bots.ts'
+import { groupProposalSchema, type GroupProposal } from './group-creation.ts'
 
 const botId = z.string()
 const member = z.object({ id: botId, name: z.string(), duty: z.string(), sessionId: z.string(), contextWorkspace: z.string().optional(), contextRevision: z.number().int().nonnegative().optional(), historyStart: z.number().int().nonnegative().optional() })
 const row = z.union([
-  z.object({ id: z.string(), author: z.enum(['user', 'notice']), text: z.string() }),
+  z.object({ id: z.string(), author: z.literal('user'), text: z.string() }),
+  z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional() }),
   z.object({
     id: z.string(), author: z.literal('bot'), botId, text: z.string(),
     status: z.enum(['working', 'done', 'error', 'stopped']),
-    phase: z.literal('discussion').optional(),
   }),
 ])
-const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row) })
-const stateSchema = z.object({ inherited: z.number(), group: group.nullable() })
+const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional() })
+const stateSchema = z.object({ inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish() })
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
@@ -30,6 +31,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'plugin:dsh-bots/coordinator': Member
     'plugin:dsh-bots/king': { mode: 'king' }
     'plugin:dsh-bots/epoch': { value:number }
+    'plugin:dsh-bots/group-proposal': { proposal: GroupProposal | null }
+    'plugin:dsh-bots/group-brief': { text: string }
   }
 }
 
@@ -37,7 +40,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 6,
+  stateVersion: 7,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
@@ -47,11 +50,19 @@ export const projection: Definition & { wire: NonNullable<Definition["wire"]> } 
       const parsed=z.object({value:z.number().int().nonnegative()}).safeParse(record.data)
       return parsed.success?{...state,group:{...state.group,sessionEpoch:parsed.data.value}}:state
     }
-    if (record?.type === 'plugin:dsh-bots/king') return { ...state, group: { sessionEpoch:state.group?.sessionEpoch, mode: 'king', members: [], rows: state.group?.rows ?? [], coordinator: state.group?.coordinator } }
+    if (record?.type === 'plugin:dsh-bots/king') return { ...state, group: { ...state.group, mode: 'king', members: [], rows: state.group?.rows ?? [] } }
+    if (record?.type === 'plugin:dsh-bots/group-proposal' && state.group?.mode === 'king') {
+      const parsed = z.object({ proposal: groupProposalSchema.nullable() }).safeParse(record.data)
+      return parsed.success ? { ...state, pendingGroup: parsed.data.proposal } : state
+    }
+    if (record?.type === 'plugin:dsh-bots/group-brief' && state.group) {
+      const parsed = z.object({ text: z.string() }).safeParse(record.data)
+      return parsed.success ? { ...state, group: { ...state.group, brief: parsed.data.text } } : state
+    }
     if (record?.type === 'plugin:dsh-bots/members') {
       const parsed = z.array(member).safeParse(record.data)
       return parsed.success
-        ? { ...state, group: parsed.data.length ? { sessionEpoch:state.group?.sessionEpoch, members: parsed.data, coordinator: state.group?.coordinator, rows: state.group?.rows ?? [] } : null }
+        ? { ...state, group: parsed.data.length ? { ...state.group, members: parsed.data, rows: state.group?.rows ?? [] } : null }
         : state
     }
     if (record?.type === 'plugin:dsh-bots/coordinator' && state.group) {
