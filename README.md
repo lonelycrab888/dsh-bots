@@ -64,7 +64,17 @@
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` 固定安装分支上的版本。该分支发布的同一个包同时适配 `rc.1` 与 `rc.2`。要由宿主从发行版本中选出最新兼容版本，启用「实验性插件 → 自定义插件索引」，再到「发现 → 添加索引源」填入 [dsh-bots 插件索引](https://raw.githubusercontent.com/lonelycrab888/dsh-bots/main/market-index.json)。
+`#main` 安装分支上的版本。该分支发布的同一个包同时适配 `rc.1` 与 `rc.2`。
+
+**通过索引选择最新兼容发行版**
+
+1. 在 **插件 → 已安装 → 实验性插件** 启用 **自定义插件索引**。
+2. 打开 **发现**。已有索引时，在索引下拉菜单中选择 **管理索引源…**。首次配置时，点击 **添加索引源**。
+3. 粘贴下面的 URL，点击 **添加**。关闭对话框后，在 **dsh-bots** 索引中打开 **Bots 群聊** 查看推荐版本。
+
+```text
+https://raw.githubusercontent.com/lonelycrab888/dsh-bots/main/market-index.json
+```
 
 安装后在插件页启用 **dsh-bots**。若侧栏没有出现 **Bots**，请先结束正在运行的任务，再完整退出并重新打开桌面端。
 

@@ -64,7 +64,17 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs the package on that branch, which supports both hosts. To have Harness choose the latest compatible release from an index, enable **Experimental plugins → Custom plugin indexes**, then add the [dsh-bots index URL](https://raw.githubusercontent.com/lonelycrab888/dsh-bots/main/market-index.json) under **Discover → Add index source**.
+`#main` installs the package on that branch, which supports both hosts.
+
+**Choose the latest compatible release from the index**
+
+1. Enable **Custom plugin indexes** under **Plugins → Installed → Experimental plugins**.
+2. Open **Discover**. If an index is already configured, select **Manage index sources…** from the index menu. For a first index, select **Add index source**.
+3. Paste the URL below and select **Add**. Close the dialog and open **Bots Group Chat** in the **dsh-bots** index to see the recommended version.
+
+```text
+https://raw.githubusercontent.com/lonelycrab888/dsh-bots/main/market-index.json
+```
 
 Enable **dsh-bots** in the Plugins panel after installation. If **Bots** does not appear in the sidebar, finish any running tasks, fully quit the desktop app, and reopen it.
 
