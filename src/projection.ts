@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { memberExecutionSchema } from './member-runtime.ts'
 import { botAvatars } from './avatars.ts'
 import type { FileBlock } from '@deepseek-ai/dsh-llm'
 import { pluginRecordOf } from '@deepseek-ai/dsh-session'
@@ -7,7 +8,8 @@ import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-
 import { taskSchema, type DiscussionTask } from './tasks.ts'
 import type { Group, Member } from './bots.ts'
 import { confirmationId, groupProposalSchema, type GroupProposal } from './group-creation.ts'
-import { groupChoiceSchema, groupDeliverySchema, type GroupDelivery } from './existing-groups.ts'
+import { peerEventSchema, peerMessageSchema, peerReceiptId, type PeerEvent } from './peer-messages.ts'
+import { groupChoiceSchema, groupDeliverySchema, groupTaskUpdateSchema, type GroupDelivery, type GroupTaskUpdate } from './existing-groups.ts'
 
 const botId = z.string()
 const member = z.object({ id: botId, name: z.string(), duty: z.string(), avatar: z.enum(botAvatars).optional(), sessionId: z.string(), contextWorkspace: z.string().optional(), contextRevision: z.number().int().nonnegative().optional(), historyStart: z.number().int().nonnegative().optional() })
@@ -24,14 +26,14 @@ const row = z.union([
   z.object({ id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional(), taskLink: z.string().optional(), groupReference: z.literal(true).optional() }),
   z.object({
     id: z.string(), author: z.literal('bot'), botId, text: z.string(),
-    status: z.enum(['working', 'done', 'error', 'stopped']), taskId: z.string().optional(), resultKind: z.enum(['partial', 'final']).optional(), sessionId: z.string().optional(),
+    status: z.enum(['working', 'done', 'error', 'stopped', 'waiting']), execution: memberExecutionSchema.optional(), taskId: z.string().optional(), resultKind: z.enum(['partial', 'final']).optional(), sessionId: z.string().optional(),
     literal: z.literal(true).optional(), privateToKing: z.literal(true).optional(), groupReference: z.literal(true).optional(),
   }),
 ])
 const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), tasks: z.array(taskSchema).optional(), activeTaskId: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
 const stateSchema = z.object({
   inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish(),
-  groupChoice: groupChoiceSchema.nullish(), groupDeliveries: z.array(groupDeliverySchema).optional(),
+  groupTaskUpdates: z.array(groupTaskUpdateSchema).optional(), peerMessages: z.array(peerMessageSchema).optional(), groupChoice: groupChoiceSchema.nullish(), groupDeliveries: z.array(groupDeliverySchema).optional(),
 })
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -50,6 +52,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'plugin:dsh-bots/group-proposal': { proposal: GroupProposal | null }
     'plugin:dsh-bots/existing-group-choice': { choice: z.infer<typeof groupChoiceSchema> | null }
     'plugin:dsh-bots/existing-group-delivery': GroupDelivery
+    'plugin:dsh-bots/group-task-update': GroupTaskUpdate
+    'plugin:dsh-bots/peer-message': PeerEvent
     'plugin:dsh-bots/task': { task: DiscussionTask; active: boolean }
     'plugin:dsh-bots/group-brief': { text: string }
   }
@@ -59,7 +63,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 13,
+  stateVersion: 15,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
@@ -82,6 +86,50 @@ export const projection: Definition & { wire: NonNullable<Definition["wire"]> } 
       const parsed = groupDeliverySchema.safeParse(record.data)
       if (!parsed.success || state.groupDeliveries?.some(item => item.requestId === parsed.data.requestId)) return state
       return { ...state, groupDeliveries: [...state.groupDeliveries ?? [], parsed.data] }
+    }
+    if (record?.type === 'plugin:dsh-bots/group-task-update' && state.group && state.group.mode !== 'king') {
+      const parsed = groupTaskUpdateSchema.safeParse(record.data)
+      if (!parsed.success || state.groupTaskUpdates?.some(update => update.id === parsed.data.id)) return state
+      return { ...state, groupTaskUpdates: [...state.groupTaskUpdates ?? [], parsed.data] }
+    }
+    if (record?.type === 'plugin:dsh-bots/peer-message' && state.group && state.group.mode !== 'king') {
+      const parsed = peerEventSchema.safeParse(record.data)
+      if (!parsed.success) return state
+      const event = parsed.data
+      const messages = state.peerMessages ?? []
+      const index = messages.findIndex(message => message.id === event.id)
+      const memberName = (id: string) => '@' + (state.group!.members.find(member => member.id === id)?.name ?? 'Bot')
+      if (event.kind === 'sent') {
+        if (index >= 0) return state
+        const timestamp = new Date(event.sentAt).toISOString()
+        const rows: Group['rows'] = []
+        if (event.visibility === 'public') rows.push({
+          id: event.id, author: 'bot', botId: event.from, text: event.text, status: 'done', taskId: event.taskId,
+        })
+        rows.push({
+          id: event.id + ':sent', author: 'notice', tone: 'info',
+          text: event.visibility === 'public' ? `公开消息 ${event.id} · ${timestamp}`
+            : `${memberName(event.from)} → ${event.to.map(memberName).join('、')} · 定向消息已排队 · ${event.id} · ${timestamp}`,
+        })
+        return { ...state, peerMessages: [...messages, { ...event, deliveries: {} }], group: { ...state.group, rows: [...state.group.rows, ...rows] } }
+      }
+      const message = messages[index]
+      if (!message?.to.includes(event.recipient)) return state
+      const delivery = message.deliveries[event.recipient]
+      if (event.kind === 'delivered' ? delivery : !delivery || delivery.acknowledgedAt !== undefined) return state
+      const timestamp = new Date(event.at).toISOString()
+      const receiptId = peerReceiptId(event.id, event.recipient)
+      const notice: Group['rows'][number] = {
+        id: receiptId + ':' + event.kind, author: 'notice', tone: 'info',
+        text: event.kind === 'delivered' ? `${memberName(event.recipient)} 已收到定向消息 ${event.id} · ${timestamp}`
+          : `${memberName(event.recipient)} 已确认定向消息 ${event.id} · 回执 ${receiptId} · ${timestamp}`,
+      }
+      const updated = { ...message, deliveries: { ...message.deliveries, [event.recipient]: event.kind === 'delivered'
+        ? { deliveredAt: event.at } : { ...delivery!, acknowledgedAt: event.at } } }
+      return {
+        ...state, peerMessages: messages.map((entry, offset) => offset === index ? updated : entry),
+        group: { ...state.group, rows: [...state.group.rows, notice] },
+      }
     }
     if (record?.type === 'plugin:dsh-bots/task' && state.group && state.group.mode !== 'king') {
       const parsed = z.object({ task: taskSchema, active: z.boolean() }).safeParse(record.data)

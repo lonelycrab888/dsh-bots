@@ -12,9 +12,9 @@ const root = new URL('../', import.meta.url)
 const { engines } = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 const upgradeFrom = process.env.DSH_BOTS_UPGRADE_FROM
 const oldVersion = upgradeFrom && JSON.parse(execFileSync('tar', ['-xOf', resolve(upgradeFrom), 'package/package.json'], { encoding: 'utf8' })).version
-const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4', '0.3.5', '0.3.6'].includes(oldVersion)
+const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4', '0.3.5', '0.3.6', '0.3.7'].includes(oldVersion)
 const oldRoutesThroughKing = legacyRouting || ['0.2.2', '0.3.1', '0.3.2'].includes(oldVersion)
-const oldMentions = !!oldVersion && oldVersion !== '0.3.6'
+const oldMentions = !!oldVersion && !['0.3.6', '0.3.7'].includes(oldVersion)
 const dir = await mkdtemp(join(tmpdir(), 'dsh-bots-smoke-'))
 const env = { ...process.env, DSH_HOME: dir }
 const session = `dsh-bots-${process.pid}`
@@ -90,7 +90,7 @@ async function exerciseExistingGroups() {
     await receipt.getByRole('button', { name: '打开群聊' }).click()
     const posted = log.locator('article[data-author=bot]').filter({ hasText: 'NOTICE_TEXT' })
     await posted.waitFor()
-    if (await posted.count() !== 1 || !await posted.getByText('KingBot', { exact: true }).count()) throw new Error('Notice did not preserve text and author')
+    if (await posted.count() !== 1 || !await posted.getByText('@KingBot', { exact: true }).count()) throw new Error('Notice did not preserve text and author')
     await king()
     await send(`看一下『${target}』聊到哪了`)
     await log.locator('article[data-author=bot]').last().getByText(/当前议题|已有结论|阶段结果/).waitFor()
@@ -143,7 +143,7 @@ async function exerciseLongReplies() {
       await button('停止生成').waitFor({ state: 'hidden' })
     }
     await log.getByText(/KingBot 未能生成汇总/).waitFor()
-    await log.getByText(/尚未收到 架构师 的有效回复/).waitFor()
+    await log.getByText(/尚未收到 @?架构师 的有效回复/).waitFor()
     if (await log.getByText('20:10 交接确认 P036-TIMELINE-END', { exact: true }).count() < 3) {
       throw new Error('The summary fallback must retain the end of the original reply')
     }
@@ -189,7 +189,7 @@ async function exerciseTaskRecovery(defaultWorkspace) {
     await editor.press('Enter')
     await button('确认建群').click()
     await page.getByRole('status').filter({ hasText: '恢复验收群' }).getByRole('button', { name: '打开群聊' }).click()
-    await page.getByRole('log').getByText('审阅员 | 初步观点', { exact: true }).waitFor()
+    await page.getByRole('log').getByText(/^@?审阅员 \| 初步观点$/u).waitFor()
   }).toString())
   const written = join(defaultWorkspace, 'p1-pending-write.txt')
   const deadline = Date.now() + 10_000
@@ -208,7 +208,7 @@ async function exerciseTaskRecovery(defaultWorkspace) {
     await task.getByText(/已收到 1 条发言.*待核对/).waitFor()
     if (await button('继续讨论').isEnabled()) throw new Error('An unverified write must not restart')
     await button('汇总已有结果').evaluate(button => { button.click(); button.click() })
-    await page.getByRole('log').getByText(/尚未收到 架构师/).waitFor()
+    await page.getByRole('log').getByText(/尚未收到 @?架构师/).waitFor()
     await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
     await button('KingBot').click()
     await button('与 KingBot 对话').click()
@@ -220,7 +220,7 @@ async function exerciseTaskRecovery(defaultWorkspace) {
     const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
     await editor.fill('已核对，继续')
     await editor.press('Enter')
-    await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
+    await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
   }).toString())
   await stopHost()
 
@@ -377,22 +377,22 @@ try {
     await editor.and(page.locator('[contenteditable="true"]')).fill('@架构师 给出架构说明')
     await editor.press('Enter')
     const log = page.getByRole('log', { name: '群聊时间线' })
-    const summary = log.getByText(legacy ? 'KingBot | 汇总完成' : 'KingBot | 讨论汇总完成', { exact: true })
-    await log.getByText(!oldRouting ? '架构师 | 直接回复' : legacy ? '架构师 | 看到了架构说明' : '架构师 | 初步观点', { exact: true }).waitFor()
+    const summary = log.getByText(legacy ? /^@?KingBot \| 汇总完成$/u : /^@?KingBot \| 讨论汇总完成$/u, { exact: true })
+    await log.getByText(!oldRouting ? /^@?架构师 \| 直接回复$/u : legacy ? /^@?架构师 \| 看到了架构说明$/u : /^@?架构师 \| 初步观点$/u, { exact: true }).waitFor()
     if (oldRouting) await summary.waitFor()
     if (await log.locator('article[data-author=bot]').count() !== (oldRouting ? 3 : 1)) throw new Error('The initial turn must match the installed version')
 
     await editor.and(page.locator('[contenteditable="true"]')).fill('@审阅员 请点评上一条')
     await page.getByRole('button', { name: /^(发送消息|Send message)$/i }).click()
-    await log.getByText(!oldRouting ? '审阅员 | 直接回复' : legacy ? '审阅员 | 看到了架构说明' : '审阅员 | 初步观点', { exact: true }).waitFor()
+    await log.getByText(!oldRouting ? /^@?审阅员 \| 直接回复$/u : legacy ? /^@?审阅员 \| 看到了架构说明$/u : /^@?审阅员 \| 初步观点$/u, { exact: true }).waitFor()
     if (oldRouting) await summary.nth(1).waitFor()
     if (await log.locator('article[data-author=bot]').count() !== (oldRouting ? 6 : 2)) throw new Error('The follow-up must match the installed version')
     if (upgrading) return
 
     await editor.and(page.locator('[contenteditable="true"]')).fill('@架构师 @审阅员 讨论架构建议')
     await editor.press('Enter')
-    await log.getByText('架构师 | 回应 审阅员', { exact: true }).waitFor()
-    await log.getByText('审阅员 | 回应 架构师', { exact: true }).waitFor()
+    await log.getByText(/^@?架构师 \| 回应 @?审阅员$/u).waitFor()
+    await log.getByText(/^@?审阅员 \| 回应 @?架构师$/u).waitFor()
     await summary.waitFor()
     await page.getByRole('button', { name: /停止生成|Stop generating/i }).waitFor({ state: 'hidden' })
     if (await log.getByText('· 讨论', { exact: true }).count()) throw new Error('Discussion must not add a badge')
@@ -445,18 +445,18 @@ try {
     await conversation.click()
     const log = page.getByRole('log', { name: '群聊时间线' })
     if (upgrading) {
-      if (oldRouting) await log.getByText(legacy ? 'KingBot | 汇总完成' : 'KingBot | 讨论汇总完成', { exact: true }).nth(1).waitFor()
-      else await log.getByText('审阅员 | 直接回复', { exact: true }).waitFor()
+      if (oldRouting) await log.getByText(legacy ? /^@?KingBot \| 汇总完成$/u : /^@?KingBot \| 讨论汇总完成$/u, { exact: true }).nth(1).waitFor()
+      else await log.getByText(/^@?审阅员 \| 直接回复$/u).waitFor()
       if (await log.locator('article[data-author=bot]').count() !== (oldRouting ? 6 : 2)) throw new Error('Upgrade should restore the old replies')
     } else {
-      await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
+      await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
       if (await log.locator('article[data-author=bot]').count() !== 9) throw new Error('Restart should restore discussion')
     }
 
     const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
     await editor.and(page.locator('[contenteditable="true"]')).fill('@审阅员 重启后继续')
     await editor.press('Enter')
-    await log.getByText('审阅员 | 直接回复', { exact: true }).nth(oldRouting ? 0 : 1).waitFor()
+    await log.getByText(/^@?审阅员 \| 直接回复$/u).nth(oldRouting ? 0 : 1).waitFor()
 
     await page.getByRole('button', { name: /^(新建会话|New session)$/i }).last().click()
     await page.getByRole('button', { name: '默认', exact: true, pressed: true }).waitFor()
@@ -495,12 +495,12 @@ try {
       await send('资料核对助手你帮我建立一下')
       await replies.last().filter({ hasText: /已创建.*资料核对助手/s }).waitFor()
       await send('方法论/实验设计助手、数据分析助手、批判性审稿助手、学术写作助手你都帮我建立一下')
-      await replies.last().filter({ hasText: /已创建 实验设计助手、数据分析助手、批判性审稿助手、学术写作助手/ }).waitFor()
+      await replies.last().filter({ hasText: /已创建 @?实验设计助手、@?数据分析助手、@?批判性审稿助手、@?学术写作助手/ }).waitFor()
       await send('这几个都帮我建立一下')
-      await replies.last().filter({ hasText: /可复用 实验设计助手、数据分析助手、批判性审稿助手、学术写作助手/ }).waitFor()
+      await replies.last().filter({ hasText: /可复用 @?实验设计助手、@?数据分析助手、@?批判性审稿助手、@?学术写作助手/ }).waitFor()
 
       await send('请帮我完成离线清单方案，让合适的成员讨论后给我结论')
-      await replies.last().filter({ hasText: /在「[^」]+」建立「清单设计讨论」.*新建 离线方案审阅员.*可以这样建吗/s }).waitFor()
+      await replies.last().filter({ hasText: /在「[^」]+」建立「清单设计讨论」.*新建 @?离线方案审阅员.*可以这样建吗/s }).waitFor()
       const workspace = (await replies.last().textContent()).match(/在「([^」]+)」建立/)[1]
       const confirm = log.getByRole('button', { name: '确认建群', exact: true })
       await confirm.waitFor()
@@ -519,8 +519,8 @@ try {
       await send('确认建群')
       await replies.last().filter({ hasText: /当前没有待确认的建群方案/ }).waitFor()
       await opened.click()
-      await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
-      await log.getByText('架构师 | 回应 离线方案审阅员', { exact: true }).waitFor()
+      await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
+      await log.getByText(/^@?架构师 \| 回应 @?离线方案审阅员$/u).waitFor()
       await log.getByText('完成离线清单方案，比较同步与纯本地方案', { exact: true }).waitFor()
       await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
       await page.getByRole('heading', { name: '离线方案审阅员', exact: true }).waitFor()
@@ -535,7 +535,7 @@ try {
       await replies.last().filter({ hasText: /当前没有待确认的建群方案/ }).waitFor()
       if (await opened.count() !== 1) throw new Error('An unrelated turn must invalidate the prior proposal')
       await send('请新建空白验收群聊，成员为 @架构师')
-      await replies.last().filter({ hasText: /建立「空白验收群」.*邀请 架构师/s }).waitFor()
+      await replies.last().filter({ hasText: /建立「空白验收群」.*邀请 @?架构师/s }).waitFor()
       await confirm.click()
       await log.getByRole('status').filter({ hasText: /已在.*空白验收群/ }).getByRole('button', { name: '打开群聊' }).waitFor()
     }).toString())
@@ -554,7 +554,7 @@ try {
       const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
       await editor.and(page.locator('[contenteditable="true"]')).fill('检查空白群重启后能否发言')
       await editor.press('Enter')
-      await log.getByText('KingBot | 讨论汇总完成', { exact: true }).waitFor()
+      await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
     }).toString())
     browser('run-code', (async page => {
       const workspace = page.getByRole('treeitem', { name: /^(默认工作区|Default workspace)(?:\s|$)/i })
@@ -563,20 +563,20 @@ try {
       await page.getByRole('treeitem', { name: /群聊 · @架构师 给出架构说明/ }).click()
       const log = page.getByRole('log', { name: '群聊时间线' })
       const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
-      const summary = log.getByText('KingBot | 讨论汇总完成', { exact: true })
+      const summary = log.getByText(/^@?KingBot \| 讨论汇总完成$/u)
       await summary.waitFor()
       const send = async (text, key = 'Enter') => {
         await editor.and(page.locator('[contenteditable="true"]')).fill(text)
         await editor.press(key)
       }
       const activeArchitect = log.locator('article[data-author=bot]')
-        .filter({ has: page.getByText('架构师', { exact: true }) })
-        .filter({ has: page.getByText('正在回复…', { exact: true }) })
+        .filter({ has: page.getByText('@架构师', { exact: true }) })
+        .filter({ has: page.getByText(/^正在(?:回复|生成)…$/u) })
       const pause = log.getByText('已暂停讨论。接下来你想让大家讨论或完成什么？', { exact: true })
       await send('@架构师 @审阅员 验收主持恢复：讨论数据索引')
       await summary.nth(1).waitFor()
-      await log.getByText('你如何回应 审阅员 的意见？请结合当前议题补充依据。', { exact: false }).waitFor()
-      const directReview = log.getByText('审阅员 | 直接回复', { exact: true })
+      await log.getByText('你如何回应 @审阅员 的意见？请结合当前议题补充依据。', { exact: false }).waitFor()
+      const directReview = log.getByText(/^@?审阅员 \| 直接回复$/u)
       const priorDirect = await directReview.count()
       await send('@审阅员 周末怎么烤面包')
       await directReview.nth(priorDirect).waitFor()
@@ -608,11 +608,11 @@ try {
       await send('@架构师 @审阅员 验收待确认原议题')
       await activeArchitect.waitFor()
       await send('方向改成什么先等等')
-      await log.getByText('我先暂停派发。你是想继续这一轮，还是换个任务？', { exact: true }).waitFor({ timeout: 6500 })
+      await log.getByText('我先暂停派发。你是想调整当前议题，还是开始一项新任务？', { exact: true }).waitFor({ timeout: 6500 })
       if (await summary.count() !== 3) throw new Error('A pause or a single addressed Bot must not trigger a summary')
       if (await log.getByText(/执行失败.*(?:JSON 格式|还有需要听取的成员)/).count()) throw new Error('Moderator recovery should not abort the discussion')
       await send('@架构师 @审阅员 验收首次主持故障：检查文档索引')
-      await log.getByText(/KingBot \| 讨论汇总完成.*尚未收到 审阅员/s).waitFor()
+      await log.getByText(/KingBot \| 讨论汇总完成.*尚未收到 @?审阅员/s).waitFor()
       await log.getByText('等待该成员回复超时。', { exact: true }).first().waitFor()
       await page.locator('input[type=file]').setInputFiles(process.env.DSH_BOTS_SMOKE_DOCUMENT)
       await editor.and(page.locator('[contenteditable="true"]')).fill('@审阅员 验收读取拖入文档')
@@ -700,14 +700,14 @@ try {
     assert.equal(independent.length, 1)
     assert.equal(independent[0].role, '审阅员')
     assert.ok(independent.every(item => !item.seesPreviousTask), 'New topics must not inherit old model messages')
-    const redirected = completed.find(item => item.moderator && moderatorState(item).议题.includes('验收插话后只核对核心证据'))
+    const redirected = completed.find(item => item.moderator && moderatorState(item).用户最近要求?.some(line => line.includes('验收插话后只核对核心证据')))
     assert.match(redirected.input, /验收实时插话原议题/)
     assert.match(redirected.input, /审阅员 \| 初步观点/)
     const latestMessage = item => JSON.parse(item.input).最新用户消息
     const callsFor = needle => completed.filter(item => item.role !== '默认' && latestMessage(item).includes(needle))
     for (const subject of ['验收暂停原议题', '验收语义暂停原议题', '验收待确认原议题', '验收换任务原议题', '验收优先点名原议题', '验收实时插话原议题']) {
       const calls = callsFor(subject).filter(item => {
-        if (item.intentCheck) return false
+        if (item.intentCheck || latestMessage(item).includes('验收插话后只核对核心证据')) return false
         try { return JSON.parse(latestMessage(item)).议题?.includes(subject) }
         catch { return latestMessage(item).includes(subject) }
       })

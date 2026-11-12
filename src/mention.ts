@@ -40,3 +40,15 @@ export function groupMentionSource(
     },
   }
 }
+
+/** Format only displayed prose. Neither stored messages nor user input use this function. */
+export function botMentionFormatter(names: readonly string[]) {
+  const escaped = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length)
+    .map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  if (!escaped) return (text: string) => text
+  const mentions = new RegExp(
+    String.raw`@?"(?:~|\.{1,2})?/[^"\n]+(?:"|$)|(?:https?://|file://|(?:~|\.{1,2})?/)[^\s"'<>，。！？、]+|(?<![A-Za-z0-9_@＠-])[@＠]?(?:` +
+      escaped + String.raw`)(?![A-Za-z0-9_-]|\.[A-Za-z0-9])`, 'gu',
+  )
+  return (text: string) => text.replace(mentions, match => match.includes('/') ? match : '@' + match.replace(/^[@＠]/u, ''))
+}

@@ -1,3 +1,4 @@
+import type { MemberExecution } from './member-runtime.ts'
 import { z } from 'zod'
 import { botAvatars, fillAvatars, type BotAvatar } from './avatars.ts'
 import type { DiscussionTask } from './tasks.ts'
@@ -66,7 +67,7 @@ export interface Member { id: BotId; name: string; duty: string; avatar?: BotAva
 export type Row =
   | { id: string; author: 'user'; text: string; continues?: true; control?: true; documents?: FileBlock[] }
   | { id: string; author: 'notice'; text: string; sessionId?: string; tone?: 'info'; taskLink?: string; groupReference?: true }
-  | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped'; taskId?: string; resultKind?: 'partial' | 'final'; sessionId?: string; literal?: true; privateToKing?: true; groupReference?: true }
+  | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' | 'waiting'; execution?: MemberExecution; taskId?: string; resultKind?: 'partial' | 'final'; sessionId?: string; literal?: true; privateToKing?: true; groupReference?: true }
 export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string; tasks?: DiscussionTask[]; activeTaskId?: string; confirmation?: { id: string; ready: boolean; task?: string } }
 
 /** An empty result asks the coordinator to select members. */

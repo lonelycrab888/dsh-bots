@@ -4,14 +4,14 @@ import type { BotAvatar } from './avatars.ts'
 import type { ResetOptions, PendingReset } from './reset.ts'
 import { KING_REMOTE } from './king-remote.ts'
 import { watchActivation } from './lifecycle.ts'
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
 import type { MemoryPage } from './workspace-memory.ts'
 import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
-import { groupMentionSource, type GroupMentionSource } from './mention.ts'
+import { botMentionFormatter, groupMentionSource, type GroupMentionSource } from './mention.ts'
 import { avatarStore, followAccountAvatar, preloadAvatar, type AccountFrame } from './account-avatar.ts'
 
 export const inject = ['slots', 'sessions', 'inputTriggers', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager', 'workspaces', 'uiWorkspace', 'remote.directoryPicker']
@@ -342,12 +342,32 @@ const markdownComponents = {
     <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
   ),
 }
-const MarkdownReply = memo(function MarkdownReply({ text }: { text: string }) {
+type FormatMentions = (text: string) => string
+type MarkdownNode = { type: string; value?: string; children?: MarkdownNode[] }
+
+function remarkBotMentions(format: FormatMentions) {
+  function visit(node: MarkdownNode, previous = ''): string {
+    if (node.type === 'text' && node.value) {
+      const prefix = previous.endsWith('@') ? '@' : ''
+      node.value = format(prefix + node.value).slice(prefix.length)
+      return node.value
+    }
+    if (node.type === 'link' || node.type === 'linkReference' || !node.children) return ''
+    if (node.type === 'root' || node.type === 'list' || node.type === 'table') {
+      node.children.forEach(child => visit(child))
+      return ''
+    }
+    return node.children.reduce((last, child) => visit(child, last), previous)
+  }
+  return () => (node: MarkdownNode) => { visit(node) }
+}
+
+const MarkdownReply = memo(function MarkdownReply({ text, format }: { text: string; format?: FormatMentions }) {
   // Some models wrap an entire formatted answer in an md fence.
   const body = /^\s*```(?:md|markdown)[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(text)?.[1] ?? text
   const formatted = /(?:^|\n)[ \t]{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|[>|]|```|~~~)|(?:\*\*|__|~~|`)[^\n]+|\[[^\]]+\]\(|[*_][^*_\n]+[*_]/.test(body)
-  if (!formatted) return <p>{body}</p>
-  return <div className="dsh-bots-markdown"><Markdown skipHtml remarkPlugins={markdownPlugins} components={markdownComponents}>{body}</Markdown></div>
+  if (!formatted) return <p>{format?.(body) ?? body}</p>
+  return <div className="dsh-bots-markdown"><Markdown skipHtml remarkPlugins={format ? [...markdownPlugins, remarkBotMentions(format)] : markdownPlugins} components={markdownComponents}>{body}</Markdown></div>
 })
 
 function GroupConfirmation({ confirmation, choose }: {
@@ -373,7 +393,8 @@ function GroupConfirmation({ confirmation, choose }: {
   </div>
 }
 
-function TaskPanel({ group, choose, source }: {
+function TaskPanel({ group, choose, source, format }: {
+  format: FormatMentions
   group: Group
   choose(task: DiscussionTask, action: TaskAction): Promise<void>
   source(id: string): void
@@ -397,7 +418,7 @@ function TaskPanel({ group, choose, source }: {
   }
   return <aside className="dsh-bots-task" aria-label="议题与进度">
     {resumable && <div className="dsh-bots-task-status">
-      <p>{labels[task.status]} · {task.title} · 已收到 {digest.completed.length} 条发言{task.operations.length ? ` · ${task.operations.length} 项待核对` : ''}</p>
+      <p>{task.question ? '等待用户回答' : labels[task.status]} · {task.title} · 已收到 {digest.completed.length} 条发言{task.operations.length ? ` · ${task.operations.length} 项待核对` : ''}</p>
       <div className="dsh-bots-actions">
         {taskActions.map(action => <button key={action} type="button" disabled={pending || action === 'resume' && !!task.operations.length}
           onClick={() => void submit(task, action)}>{taskActionLabel[action]}</button>)}
@@ -413,10 +434,10 @@ function TaskPanel({ group, choose, source }: {
         <dt>原始目标</dt><dd>{task.goal}</dd>
         {digest.constraints.length > 0 && <><dt>约束</dt><dd><ul>{digest.constraints.map(row => <li key={row.id}>{row.text} <button type="button" onClick={() => source(row.id)}>原消息</button></li>)}</ul></dd></>}
         {digest.decisions.length > 0 && <><dt>用户确认和更正</dt><dd><ul>{[...digest.decisions].reverse().map(row => <li key={row.id}>{row.text} <button type="button" onClick={() => source(row.id)}>原消息</button></li>)}</ul></dd></>}
-        {digest.result && <><dt>已保存汇总</dt><dd><MarkdownReply text={digest.result.text} /><button type="button" onClick={() => source(digest.result!.id)}>原汇总</button></dd></>}
-        {digest.completed.length > 0 && <><dt>发言依据</dt><dd><ul>{digest.completed.map(row => <li key={row.rowId}><button type="button" onClick={() => source(row.rowId)}>{row.name} · {row.question}</button></li>)}</ul></dd></>}
-        {digest.questions.length > 0 && <><dt>待解决问题</dt><dd><ul>{[...new Set(digest.questions)].map(question => <li key={question}>{question}</li>)}</ul></dd></>}
-        {task.operations.length > 0 && <><dt>待核对操作</dt><dd><ul>{task.operations.map(operation => <li key={operation.id}>{operation.bot} · {operation.tool}{operation.target ? ` · ${operation.target}` : ''}</li>)}</ul><p>核对后可发送「已核对，继续」。</p></dd></>}
+        {digest.result && <><dt>已保存汇总</dt><dd><MarkdownReply text={digest.result.text} format={format} /><button type="button" onClick={() => source(digest.result!.id)}>原汇总</button></dd></>}
+        {digest.completed.length > 0 && <><dt>发言依据</dt><dd><ul>{digest.completed.map(row => <li key={row.rowId}><button type="button" onClick={() => source(row.rowId)}>{'@' + row.name} · {format(row.question)}</button></li>)}</ul></dd></>}
+        {digest.questions.length > 0 && <><dt>待解决问题</dt><dd><ul>{[...new Set(digest.questions)].map(question => <li key={question}>{format(question)}</li>)}</ul></dd></>}
+        {task.operations.length > 0 && <><dt>待核对操作</dt><dd><ul>{task.operations.map(operation => <li key={operation.id}>{'@' + operation.bot} · {operation.tool}{operation.target ? ` · ${operation.target}` : ''}</li>)}</ul><p>核对后可发送「已核对，继续」。</p></dd></>}
         {digest.documents.length > 0 && <><dt>附件</dt><dd><ul>{digest.user.flatMap(row => (row.documents ?? []).map((file, index) => <li key={`${row.id}:${index}`}><button type="button" onClick={() => source(row.id)}>{file.attachment.name}</button></li>))}</ul></dd></>}
       </dl>
     </details>
@@ -434,6 +455,10 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   const group = useProjection('dshBots')
   const userAvatar = useSyncExternalStore(accountAvatar.subscribe, accountAvatar.getSnapshot)
   const [library, setLibrary] = useState<Library>()
+  const mentionMembers = group?.mode === 'king' ? library?.bots : group?.members
+  const formatMentions = useMemo(() => botMentionFormatter([
+    coordinatorName, ...(mentionMembers ?? []).map(member => member.name),
+  ]), [mentionMembers])
   useEffect(() => {
     let disposed = false, generation = 0
     const refresh = async () => {
@@ -494,7 +519,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   }, [group?.rows])
   if (!group) return null
   return <section ref={room} className="dsh-bots dsh-bots-room" aria-label={group.mode === 'king' ? 'KingBot 专属对话' : '群聊'}>
-    {group.mode !== 'king' && <TaskPanel group={group} choose={chooseTask} source={id => {
+    {group.mode !== 'king' && <TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
       row?.scrollIntoView({ block: 'nearest' })
       row?.focus({ preventScroll: true })
@@ -520,9 +545,9 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
                   </span>
                 : <Avatar id={bot?.id} name={name} avatar={library?.bots.find(item => item.id === bot?.id)?.avatar ?? (bot && 'avatar' in bot ? bot.avatar : undefined)} />}
               <div className="dsh-bots-bubble">
-                <strong>{name}</strong>
+                <strong>{row.author === 'bot' && bot ? '@' + name : name}</strong>
                 {row.author === 'bot' && row.status === 'done' && !row.literal
-                  ? <MarkdownReply text={row.text} />
+                  ? <MarkdownReply text={row.text} format={formatMentions} />
                   : <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
                       {row.author === 'bot' && row.status === 'working' ? row.text || '正在回复…' : row.text}
                     </p>}

@@ -24,7 +24,7 @@ test('group proposals require a workspace choice and keep suggested Bots separat
   const proposal = proposeGroup(action, request, library, workspaces, () => String(++id))
   assert.equal(proposal.workspaceId, undefined)
   assert.equal(library.bots.length, fixtureLibrary.bots.length)
-  assert.match(describeGroupProposal(proposal, workspaces), /新建 资料-整理助手.*放在哪个工作区/s)
+  assert.match(describeGroupProposal(proposal, workspaces), /新建 `资料-整理助手`.*放在哪个工作区/s)
   assert.match(describeGroupProposal({ ...proposal, workspaceId: 'b' }, workspaces), /在「项目（\/work\/b）」.*可以这样建吗/s)
   assert.deepEqual(groupReply('工作区：/work/b'), { kind: 'workspace', name: '/work/b' })
   assert.deepEqual(groupReply('就按这个方案建群吧'), { kind: 'confirm' })

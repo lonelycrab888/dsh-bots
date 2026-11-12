@@ -50,3 +50,20 @@ test('a duplicate delivery record is inert and queued tasks leave the active top
   assert.equal(queued.group?.tasks?.[1].status, 'ready')
   assert.match(groupProgress(queued.group!), /已有议题.*已暂停/u)
 })
+
+test('follow-up routes distinguish original notices and amendments across unrelated turns', () => {
+  assert.deepEqual(parseExistingGroupRequest('再把『保留 **原文**』发给刚才的群'), {
+    kind: 'send', target: '刚才的群', body: '保留 **原文**',
+  })
+  assert.deepEqual(parseExistingGroupRequest('再把这句发给刚才的群'), {
+    kind: 'send', target: '刚才的群',
+  })
+  assert.deepEqual(parseExistingGroupRequest('把预算改成 1000，补充给他们'), {
+    kind: 'update', target: '他们', body: '把预算改成 1000',
+  })
+  assert.deepEqual(parseExistingGroupRequest('上一版不要了，按新要求继续：『预算 1200』'), {
+    kind: 'update', target: '这个群', body: '预算 1200',
+  })
+  assert.equal(parseExistingGroupRequest('把预算改成 1000，补充给他们可以吗？'), undefined)
+  assert.equal(parseExistingGroupRequest('不要给这个群补充要求：预算 1000'), undefined)
+})

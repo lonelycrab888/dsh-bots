@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { coordinatorId, coordinatorName, type Group, type Row } from './bots.ts'
 
-const requestKind = z.enum(['locate', 'inspect', 'send', 'task'])
+const requestKind = z.enum(['locate', 'inspect', 'send', 'task', 'update'])
 export const groupRequestSchema = z.object({
   kind: requestKind,
   target: z.string(),
@@ -14,14 +14,30 @@ export const groupChoiceSchema = z.object({
   request: groupRequestSchema,
   candidates: z.array(z.string()),
 })
-export const groupDeliverySchema = z.object({
+const groupDelivery = z.object({
   requestId: z.string(),
   receiptId: z.string(),
   targetId: z.string(),
-  kind: z.enum(['send', 'task']),
   body: z.string().min(1),
 })
+export const groupDeliverySchema = z.discriminatedUnion('kind', [
+  groupDelivery.extend({ kind: z.enum(['send', 'task']) }),
+  groupDelivery.extend({ kind: z.literal('update'), taskId: z.string() }),
+])
 export type GroupDelivery = z.infer<typeof groupDeliverySchema>
+
+export const groupTaskUpdateSchema = z.object({
+  id: z.string(), taskId: z.string(), origin: z.string(), body: z.string(), queuedAt: z.number(),
+})
+export type GroupTaskUpdate = z.infer<typeof groupTaskUpdateSchema>
+
+export function confirmedGroupRoute(rows: readonly Row[], targetId?: string) {
+  const last = rows.findLast(row => row.author !== 'user' && row.groupReference && row.sessionId && (!targetId || row.sessionId === targetId))
+  if (!last || last.author === 'user' || !last.sessionId) return
+  const link = rows.findLast(row => row.author === 'notice' && row.sessionId === last.sessionId && row.groupReference && row.taskLink)
+  return { targetId: last.sessionId, taskId: link?.author === 'notice' ? link.taskLink : undefined }
+}
+
 export interface ExistingGroup {
   id: string
   title: string
@@ -60,6 +76,14 @@ export function parseExistingGroupRequest(original: string): ExistingGroupReques
     const body = part === undefined ? undefined : unwrap(part)
     return { kind, target: name, ...(location ? { workspace: unwrap(location[1].trim()) } : {}), ...(body ? { body } : {}) }
   }
+  const forward = /^(?:(?:请|帮我|麻烦)\s*)*(?:再)?\s*把\s*(.*?)\s*(?:发|转发|发到|发给|转达给)\s*(刚才的群(?:聊)?|上一个群(?:聊)?|这个群(?:聊)?|他们)[。！!]*(?:[：:]\s*(.+))?$/su.exec(mask)
+  if (forward) return make('send', forward[2], forward[3] ?? (forward[1] === '这句' || forward[1] === '这句话' ? undefined : forward[1]))
+  const amendment = /^(?:(?:请|帮我|麻烦)\s*)*(?:再)?(?:给|让)\s*(.+?)\s*(?:补充(?:一个)?(?:新)?(?:要求|约束)|更新(?:要求|约束|议题)|按(?:新)?要求继续)\s*[：:]?\s*(.*)$/su.exec(mask)
+  if (amendment) return make('update', amendment[1], amendment[2])
+  const supplement = /^(.+?)[，,。；;]\s*(?:请)?(?:再)?(?:补充|同步|转达)给\s*(他们|刚才的群(?:聊)?|这个群(?:聊)?)[。！!]*$/su.exec(mask)
+  if (supplement) return make('update', supplement[2], supplement[1])
+  const revise = /^(?:上一版|刚才的(?:方案|结果))\s*(?:先)?不要了[，,。；;]\s*(?:请)?按新要求继续(?:[：:]\s*(.+)|[。！!]*$)/su.exec(mask)
+  if (revise) return make('update', '这个群', revise[1])
   const message = new RegExp('^' + polite + '(?:在|往|向|给)\\s*(.+?)\\s*' + send + '\\s*(.*)$', 'su').exec(mask)
   if (message) return make('send', message[1], message[2])
   const follow = /^(?:就发|发这句|正文\s*[:：])\s*(\u0000\d+\u0000)\s*$/u.exec(mask)
@@ -81,7 +105,7 @@ export function parseExistingGroupRequest(original: string): ExistingGroupReques
 
 export const groupTitle = (name: string) => name.normalize('NFKC').trim().replace(/^群聊\s*[·•・]\s*/u, '')
 const comparable = (name: string) => groupTitle(name).toLocaleLowerCase()
-export const isGroupReference = (name: string) => /^(?:这个群(?:聊)?|该群(?:聊)?|这群)$/u.test(name)
+export const isGroupReference = (name: string) => /^(?:这个群(?:聊)?|该群(?:聊)?|这群|刚才的群(?:聊)?|上一个群(?:聊)?|他们)$/u.test(name)
 
 export function matchingGroups(groups: ExistingGroup[], request: ExistingGroupRequest): ExistingGroup[] {
   const name = comparable(request.target)
@@ -117,6 +141,7 @@ export function groupProgress(group: Group): string {
   const label = { ready: '待开始', running: '讨论中', paused: '已暂停', complete: '已汇总', ended: '已结束' }
   return [
     task ? `当前议题「${task.title}」 · ${label[task.status]}` : undefined,
+    task?.question && `等待用户回答：${task.question.text}`,
     latest && `${latest.resultKind === 'final' ? '已有结论' : '阶段结果'}：${shortText(latest.text, 420)}`,
     ...(!latest ? rows.slice(-3).map(row =>
       `${row.author === 'user' ? '你' : row.author === 'bot' ? group.members.find(bot => bot.id === row.botId)?.name ?? '成员' : coordinatorName}：${shortText(row.text, 220)}`) : []),

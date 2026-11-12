@@ -26,7 +26,7 @@ export function continuesDiscussion(text: string, steering: boolean): boolean {
 export function discussionInstructions(mayClose: boolean, correction?: string): string {
   const action = '{"kind":"speak","botId":"候选成员的 id","question":"一个问题"}'
   return [
-    '你是本场群聊的主持人 KingBot。依据当前议题和已经出现的发言决定下一位最能推进讨论的成员。每次只邀请一位，追问依据、回应分歧或补充缺失的观点。',
+    '你是 KingBot。以用户最新要求为准，结合已有发言主持讨论。根据需要选择最合适的成员追问，信息足够时收束。',
     correction && `上一条决定被拒绝（${correction}）。请直接从本轮可发言中重新选一位，复制其 id，输出一个完整的 JSON 对象。`,
     mayClose && !correction
       ? `只输出 ${action}。信息足够时也可以输出 {"kind":"close"}。`
@@ -34,7 +34,7 @@ export function discussionInstructions(mayClose: boolean, correction?: string): 
   ].filter(Boolean).join('\n')
 }
 
-export type DiscussionIntent = { kind: 'continue' | 'pause' | 'clarify' } | { kind: 'redirect'; task: string }
+export type DiscussionIntent = { kind: 'continue' | 'pause' | 'clarify' | 'status' } | { kind: 'redirect'; task: string }
 
 const pauseOnly = /^(?:请|麻烦|先|现在|赶紧|马上|立即|可以|就|大家|各位|先让大家|让大家|KingBot|主Bot|[，,\s])*(?:(?:停止|暂停|终止|中止|结束|打断)(?:(?:这轮|本轮|当前|现在的|这次|一下|群聊)\s*)*(?:讨论|发言|派发|回复|任务|生成)?|(?:先)?(?:停|等|缓|等等|停停)(?:一?下|一?会儿?|一?阵|一?分钟)?|到此为止|先到这(?:里|儿)?|(?:不用|不要|别)(?:再|继续)?(?:派发|发言|讨论|继续)(?:任务|了)?)(?:一下|了|吧|好吗|好不好)?[。.!！?？\s]*$/iu
 const interruptCues = /(?:停(?:止|顿|下|一[下会])|暂停|别.{0,8}(?:继续|发言|派发|往下|说|聊)|不要.{0,8}(?:继续|发言|派发|往下)|不用.{0,8}(?:继续|发言|派发|往下|做了)|等(?:等|一下|会儿)|慢着|先听我|我(?:自己|先)来|歇(?:一歇|会儿)|先别忙|放一放|先搁置|暂时不|到此为止|先到这|中[止断]|打断|终止|结束(?:现在的|当前|这轮|本轮)?讨论|换(?:个|一个|成|一下|个新的)?(?:方向|任务|话题|思路|议题)|改成|转(?:向|到)|跑偏了|方向不对|取消(?:现在的|当前|这轮|本轮)?(?:讨论|任务)|接下来先)|\b(?:stop|pause|hold on|wait|switch|redirect|change direction|new topic|new task|drop that|set that aside|end (?:the )?discussion)\b/iu
@@ -57,7 +57,7 @@ export function mayRedirectDiscussion(text: string): boolean {
 
 export function parseDiscussionIntent(output: string, message: string): DiscussionIntent {
   const value = JSON.parse(output.trim().replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, '')) as { kind?: unknown; task?: unknown } | null
-  if (value?.kind === 'pause' || value?.kind === 'clarify') return { kind: value.kind }
+  if (value?.kind === 'pause' || value?.kind === 'clarify' || value?.kind === 'status') return { kind: value.kind }
   if (value?.kind === 'redirect' && typeof value.task === 'string') {
     const task = value.task.trim()
     // A redirect is a new user task, not a task invented by the classifier.

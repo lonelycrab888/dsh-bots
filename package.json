@@ -1,6 +1,6 @@
 {
   "name": "dsh-bots",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Named Bots and group conversations for DeepSeek Harness.",
   "type": "module",
   "main": "./lib/index.js",

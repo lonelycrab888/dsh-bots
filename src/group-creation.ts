@@ -127,7 +127,7 @@ function workspaceLabel(workspace: GroupWorkspace, all: GroupWorkspace[]) {
 export function describeGroupProposal(proposal: GroupProposal, workspaces: GroupWorkspace[]) {
   const target = workspaces.find(workspace => workspace.id === proposal.workspaceId)
   const existing = proposal.members.map(member => member.name).join('、')
-  const newBots = proposal.newBots.map(bot => `${bot.name}（${bot.duty}）`).join('、')
+  const newBots = proposal.newBots.map(bot => `\`${bot.name}\`（${bot.duty}）`).join('、')
   const names = [existing && `邀请 ${existing}`, newBots && `新建 ${newBots} 加入`].filter(Boolean).join('，并')
   const place = target ? `在「${workspaceLabel(target, workspaces)}」` : ''
   const task = proposal.runTask ? '，建好后开始讨论并把结论带回这里' : ''
@@ -151,6 +151,6 @@ export function describeGroupChange(proposal: GroupProposal, previous: GroupProp
   ].filter(Boolean).join('，')
   if (!target) return describeGroupProposal(proposal, workspaces)
   const newBots = proposal.newBots.filter(bot => !previous.newBots.some(old => old.name === bot.name && old.duty === bot.duty))
-  const approval = newBots.length ? `同意新建${newBots.map(bot => ` ${bot.name}（${bot.duty}）`).join('、')}并建群吗？` : '按修改后的方案建群吗？'
+  const approval = newBots.length ? `同意新建${newBots.map(bot => ` \`${bot.name}\`（${bot.duty}）`).join('、')}并建群吗？` : '按修改后的方案建群吗？'
   return updates ? `${updates}。 ${approval}` : approval
 }

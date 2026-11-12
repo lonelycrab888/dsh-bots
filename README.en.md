@@ -6,7 +6,14 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.7`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.8`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+
+## v0.3.8
+
+- Child Bots can post as themselves or send directed messages to members of the current group. The message body reaches the recipient's model input. The timeline shows the message ID and the host's queued, delivered, and acknowledged timestamps.
+- In KingBot's dedicated chat, say `再把『通知正文』发给刚才的群` to post a literal notice or `把预算改成 1000，补充给他们` to amend the linked topic. The group and topic link persists, and updated results come back to the same dedicated chat.
+- A new user message cancels the current discussion turn immediately. KingBot uses the latest input and saved context to decide whether to continue, answer a progress question, pause, switch topics, or let a single mentioned Bot reply. Bot names display with `@` in the timeline.
+- Member replies show generation, file reading, and tool stages. The group distinguishes a model timeout, a member deadline, KingBot’s wait expiry, and approval denial. A member can leave a concrete question in the group and resume the same topic after the user answers.
 
 ## v0.3.7
 
@@ -90,7 +97,7 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.7.tgz`. [v0.3.7 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.7)
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.8.tgz`. [v0.3.8 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.8)
 
 To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
@@ -102,7 +109,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs directly from the main branch. Its v0.3.7 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
+`#main` installs directly from the main branch. Its v0.3.8 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 
@@ -139,7 +146,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.5.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.8.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
