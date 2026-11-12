@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { parseDiscussionStep } from '../src/discussion.ts'
-import { describeGroupProposal, groupReply, proposeGroup, validateGroupMembers } from '../src/group-creation.ts'
+import { explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep } from '../src/discussion.ts'
+import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from '../src/group-creation.ts'
 import { fixtureLibrary } from './fixtures.ts'
 
 const workspaces = [
@@ -21,12 +21,11 @@ const action = {
 test('group proposals require a workspace choice and keep suggested Bots separate until confirmation', () => {
   const library = structuredClone(fixtureLibrary)
   let id = 0
-  const proposal = proposeGroup(action, request, library, workspaces, () => String(++id), false)
+  const proposal = proposeGroup(action, request, library, workspaces, () => String(++id))
   assert.equal(proposal.workspaceId, undefined)
   assert.equal(library.bots.length, fixtureLibrary.bots.length)
-  assert.match(describeGroupProposal(proposal, workspaces), /建议新建 资料-整理助手/)
-  assert.doesNotMatch(describeGroupProposal(proposal, workspaces), /请回复「确认建群」/)
-  assert.match(describeGroupProposal({ ...proposal, workspaceId: 'b' }, workspaces), /目标工作区：项目（\/work\/b）.*确认建群/s)
+  assert.match(describeGroupProposal(proposal, workspaces), /新建 资料-整理助手.*放在哪个工作区/s)
+  assert.match(describeGroupProposal({ ...proposal, workspaceId: 'b' }, workspaces), /在「项目（\/work\/b）」.*可以这样建吗/s)
   assert.deepEqual(groupReply('工作区：/work/b'), { kind: 'workspace', name: '/work/b' })
   assert.deepEqual(groupReply('就按这个方案建群吧'), { kind: 'confirm' })
   assert.equal(groupReply('嗯'), undefined)
@@ -38,9 +37,45 @@ test('group proposals require a workspace choice and keep suggested Bots separat
 
 test('group proposals reject unavailable or omitted members and a task with no discussion partner', () => {
   const library = structuredClone(fixtureLibrary)
-  assert.throws(() => proposeGroup({ ...action, memberIds: ['absent'] }, request, library, workspaces, () => 'id', false), /不可用/)
-  assert.throws(() => proposeGroup({ ...action, memberIds: ['reviewer'] }, request, library, workspaces, () => 'id', false), /遗漏/)
-  assert.throws(() => proposeGroup({ ...action, newBots: [] }, request, library, workspaces, () => 'id', false), /至少需要两名/)
+  assert.throws(() => proposeGroup({ ...action, memberIds: ['absent'] }, request, library, workspaces, () => 'id'), /不可用/)
+  assert.throws(() => proposeGroup({ ...action, memberIds: ['reviewer'] }, request, library, workspaces, () => 'id'), /遗漏/)
+  assert.throws(() => proposeGroup({ ...action, newBots: [] }, request, library, workspaces, () => 'id'), /至少需要两名/)
+  const exact = '请建群，唯一成员是 @架构师'
+  assert.throws(() => proposeGroup({ ...action, evidence: exact }, exact, library, workspaces, () => 'id'), /限定了群成员/)
+})
+
+test('ambiguous workspace names require a choice and revisions invalidate the prior confirmation', () => {
+  const library = structuredClone(fixtureLibrary)
+  let id = 0
+  const nextId = () => String(++id)
+  const ambiguous = '请在项目建群'
+  const first = proposeGroup({ ...action, workspaceId: 'a', evidence: ambiguous }, ambiguous, library, workspaces, nextId)
+  assert.equal(first.workspaceId, undefined)
+  const precise = '请在 /work/b 建群'
+  const selected = proposeGroup({ ...action, workspaceId: 'a', evidence: precise }, precise, library, workspaces, nextId)
+  assert.equal(selected.workspaceId, 'b')
+  const change = '把资料整理助手换成审阅员'
+  assert.ok(isGroupRevision(change))
+  const revised = proposeGroup({ ...action, topic: change, memberIds: ['architect', 'reviewer'], newBots: [], evidence: change }, change, library, workspaces, nextId, selected)
+  assert.equal(revised.workspaceId, 'b')
+  assert.equal(revised.topic, selected.topic)
+  assert.notEqual(confirmationId(revised), confirmationId(selected))
+  assert.match(describeGroupChange(revised, selected, workspaces), /加入 审阅员.*移除 资料-整理助手/)
+  assert.deepEqual(groupReply('好，就这么建。'), { kind: 'confirm' })
+  assert.deepEqual(groupReply('先不建了'), { kind: 'cancel' })
+  assert.equal(groupReply('按这个来', false), undefined)
+  for (const text of ['“就这么建”是什么意思', '别按这个方案建群', '如果确认建群会怎样']) assert.equal(groupReply(text), undefined)
+})
+
+test('discussion controls distinguish a direct pause from resuming and quoting one', () => {
+  assert.ok(explicitDiscussionPause('这块先放一放。'))
+  assert.ok(keepsDiscussionGoing('别停，继续说'))
+  assert.equal(mayRedirectDiscussion('别停，继续说'), false)
+  assert.equal(mayRedirectDiscussion('请解释“停止讨论”的含义'), false)
+  assert.equal(explicitDiscussionPause('请解释“停止讨论”的含义'), false)
+  assert.ok(mayRedirectDiscussion('换个方向吧'))
+  assert.deepEqual(parseDiscussionIntent('{"kind":"clarify"}', '换个方向吧'), { kind: 'clarify' })
+  assert.throws(() => parseDiscussionIntent('{"kind":"redirect","task":"自己编的任务"}', '换个方向吧'), /无法判断/)
 })
 
 test('moderation admits one eligible speaker at a time and rejects premature closure', () => {

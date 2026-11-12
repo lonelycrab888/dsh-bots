@@ -4,7 +4,7 @@ import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-projection/types'
 import type { Group, Member } from './bots.ts'
-import { groupProposalSchema, type GroupProposal } from './group-creation.ts'
+import { confirmationId, groupProposalSchema, type GroupProposal } from './group-creation.ts'
 
 const botId = z.string()
 const member = z.object({ id: botId, name: z.string(), duty: z.string(), sessionId: z.string(), contextWorkspace: z.string().optional(), contextRevision: z.number().int().nonnegative().optional(), historyStart: z.number().int().nonnegative().optional() })
@@ -24,7 +24,7 @@ const row = z.union([
     status: z.enum(['working', 'done', 'error', 'stopped']),
   }),
 ])
-const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional() })
+const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
 const stateSchema = z.object({ inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish() })
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -49,7 +49,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 10,
+  stateVersion: 11,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
@@ -88,6 +88,12 @@ export const projection: Definition & { wire: NonNullable<Definition["wire"]> } 
   wire: {
     summary: false,
     viewSchema: group.nullable() as unknown as NonNullable<Definition['wire']>['viewSchema'],
-    view: state => state.group,
+    view: state => state.group && state.pendingGroup ? {
+      ...state.group,
+      confirmation: {
+        id: confirmationId(state.pendingGroup), ready: Boolean(state.pendingGroup.workspaceId),
+        ...(state.pendingGroup.runTask ? { task: state.pendingGroup.topic } : {}),
+      },
+    } : state.group,
   },
 }

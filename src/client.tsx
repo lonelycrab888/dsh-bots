@@ -322,12 +322,36 @@ const MarkdownReply = memo(function MarkdownReply({ text }: { text: string }) {
   return <div className="dsh-bots-markdown"><Markdown skipHtml remarkPlugins={markdownPlugins} components={markdownComponents}>{body}</Markdown></div>
 })
 
-function GroupTimeline({ useProjection, inputActions, mention, openSession, catalog }: {
+function GroupConfirmation({ confirmation, choose }: {
+  confirmation: NonNullable<Group['confirmation']>
+  choose(id: string, confirm: boolean): Promise<void>
+}) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+  async function submit(confirm: boolean) {
+    setPending(true)
+    setError('')
+    try { await choose(confirmation.id, confirm) }
+    catch (error) { setError((error as Error).message) }
+    finally { setPending(false) }
+  }
+  return <div aria-label="建群确认" className="dsh-bots-hint">
+    {confirmation.task && <details><summary>查看群聊任务</summary><p>{confirmation.task}</p></details>}
+    <div className="dsh-bots-actions">
+      {confirmation.ready && <button type="button" className="dsh-bots-primary" disabled={pending} onClick={() => void submit(true)}>确认建群</button>}
+      <button type="button" disabled={pending} onClick={() => void submit(false)}>取消方案</button>
+    </div>
+    {error && <span role="alert" className="dsh-bots-error">{error}</span>}
+  </div>
+}
+
+function GroupTimeline({ useProjection, inputActions, mention, openSession, catalog, chooseGroup }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
   inputActions: InsertionActions
   mention: (name: string, actions: InsertionActions) => void
   openSession: (id: string) => void
+  chooseGroup(id: string, confirm: boolean): Promise<void>
 }) {
   const group = useProjection('dshBots')
   const [library, setLibrary] = useState<Library>()
@@ -434,6 +458,7 @@ function GroupTimeline({ useProjection, inputActions, mention, openSession, cata
               </div>
             </article>
           })}
+          {group.confirmation && <GroupConfirmation key={group.confirmation.id} confirmation={group.confirmation} choose={chooseGroup} />}
         </div>}
   </section>
 }
@@ -587,6 +612,11 @@ function mountClient(ctx: ClientContext) {
     inject: (sessionId: string) => ({
       catalog,
       openSession: (id: string) => ctx.uiWorkspace.openSession(id),
+      async chooseGroup(confirmationId: string, confirm: boolean) {
+        const result = await ctx.remote.dshBots.manage(sessionId, { action: confirm ? 'confirm-group' : 'cancel-group', confirmationId })
+        if (!result.ok) throw new Error(result.error.message)
+        if (result.value.kind === 'error') throw new Error(result.value.text)
+      },
       mention(name: string, actions: InsertionActions) {
         const binding = ctx.sessions.binding(sessionId)
         if (binding) insertMention(name, actions, ctx.conversation.input.for(binding.ctx))

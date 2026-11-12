@@ -20,11 +20,20 @@ export const groupProposalSchema = z.object({
   newBots: z.array(requestedBotDefinition.extend({ id: z.string() })).max(6),
   workspaceId: z.string().optional(),
   sessionId: z.string(),
+  confirmationId: z.string().optional(),
   runTask: z.boolean(),
 })
 export type GroupProposal = z.infer<typeof groupProposalSchema>
 
-export function proposeGroup(raw: unknown, user: string, library: Library, workspaces: GroupWorkspace[], uuid: () => string, revising: boolean): GroupProposal {
+export function confirmationId(proposal: GroupProposal) {
+  return proposal.confirmationId ?? proposal.sessionId
+}
+
+export function isGroupRevision(user: string) {
+  return /(?:换成|换为|换掉|改成|改到|改为|再加(?:上)?|加上|去掉|移除|删掉|改名|换个(?:名字|工作区)|只(?:用|留|要)|不(?:用|要|再)新建)|\b(?:replace .+ with|swap|remove|rename|add .+ to the group|change .+ to|move it to)\b/iu.test(user)
+}
+
+export function proposeGroup(raw: unknown, user: string, library: Library, workspaces: GroupWorkspace[], uuid: () => string, previous?: GroupProposal): GroupProposal {
   const result = groupActionSchema.safeParse(raw)
   if (!result.success) throw new Error('建群方案需要包含群名、任务摘要、成员或新 Bot 建议，以及本轮原文依据')
   const action = result.data
@@ -32,7 +41,7 @@ export function proposeGroup(raw: unknown, user: string, library: Library, works
   if (/(?:不要|别|不用|不必|无需|暂不|只让你)[^。；;，,]{0,12}(?:建群|建.{0,4}群|拉.{0,4}群|开.{0,4}群)|\b(?:do not|don.t|never) (?:create|start) (?:a )?group\b/iu.test(user)) {
     throw new Error('用户暂不需要建群，请直接回应本轮请求')
   }
-  if (!action.runTask && !revising && !/建群|群聊|讨论群|开.{0,4}群|建.{0,5}群|拉.{0,5}群|组.{0,5}群|group chat/iu.test(user)) {
+  if (!action.runTask && !previous && !/建群|群聊|讨论群|开.{0,4}群|建.{0,5}群|拉.{0,5}群|组.{0,5}群|group chat/iu.test(user)) {
     throw new Error('请先说明要建立什么群聊')
   }
   const members = [...new Set(action.memberIds)].map(id => {
@@ -43,6 +52,10 @@ export function proposeGroup(raw: unknown, user: string, library: Library, works
   const named = [...user.matchAll(/(?:^|[\s，。？！、,:：;；!?])@([\p{L}\p{N}_-]+)/gu)].map(match => normalizeName(match[1]))
   const omitted = library.bots.find(bot => !bot.archived && named.includes(normalizeName(bot.name)) && !action.memberIds.includes(bot.id))
   if (omitted) throw new Error(`方案遗漏了用户点名的“${omitted.name}”`)
+  const exact = /(?:唯一|仅(?:指定|用|邀请|添加|选)|只(?:指定|用|邀请|添加|选)|\b(?:only|sole)\s+(?:child|invite|include|member))/iu.test(user)
+  if (exact && named.length && (action.newBots.length || members.some(member => !named.includes(normalizeName(member.name))))) {
+    throw new Error('用户限定了群成员，请只使用点名的成员')
+  }
   const names = new Set(library.bots.map(bot => normalizeName(bot.name)))
   const newBots = action.newBots.map(bot => {
     const key = normalizeName(bot.name)
@@ -52,14 +65,20 @@ export function proposeGroup(raw: unknown, user: string, library: Library, works
     names.add(key)
     return { ...bot, id: `bot-${uuid()}` }
   })
-  const workspaceId = workspaces.find(workspace => workspace.id === action.workspaceId)?.id
-    ?? (workspaces.length === 1 ? workspaces[0].id : undefined)
+  const normalized = user.normalize('NFKC')
+  const paths = workspaces.filter(workspace => normalized.includes(workspace.path.normalize('NFKC')))
+  const namedWorkspaces = workspaces.filter(workspace => normalized.includes(workspace.title.normalize('NFKC')))
+  const workspaceId = paths.length === 1 ? paths[0].id
+    : namedWorkspaces.length > 1 ? undefined
+    : namedWorkspaces[0]?.id ?? workspaces.find(workspace => workspace.id === action.workspaceId)?.id
+      ?? previous?.workspaceId
+      ?? (workspaces.length === 1 ? workspaces[0].id : undefined)
   const proposal: GroupProposal = {
-    title: action.title.replace(/\s+/g, ' '),
-    topic: action.topic,
+    title: previous && !/(?:群名|名字|改名|rename|title)/iu.test(user) ? previous.title : action.title.replace(/\s+/g, ' '),
+    topic: previous && !/(?:议题|任务|目标|topic|task|goal)/iu.test(user) ? previous.topic : action.topic,
     members,
     newBots,
-    runTask: action.runTask,
+    runTask: previous?.runTask ?? action.runTask,
     sessionId: `session-${uuid()}`,
     ...(workspaceId === undefined ? {} : { workspaceId }),
   }
@@ -92,28 +111,47 @@ export function validateGroupMembers(proposal: GroupProposal, library: Library) 
   }
 }
 
-export function groupReply(user: string) {
+export function groupReply(user: string, pending = true) {
   const text = user.normalize('NFKC').trim().replace(/[。.!！]+$/u, '')
-  if (/^(?:确认建群|确认创建群聊|同意建群|可以建群|就按(?:这个|上面(?:的)?)?(?:方案)?建群|confirm group)(?:吧|就行|即可)?$/iu.test(text)) return { kind: 'confirm' } as const
-  if (/^(?:取消建群|取消创建群聊|先不建群|不建群了|cancel group)$/iu.test(text)) return { kind: 'cancel' } as const
-  const workspace = /^(?:(?:工作区|workspace)\s*:\s*|(?:建在|改到|放在)\s*)(.+)$/iu.exec(text)
-  if (workspace) return { kind: 'workspace', name: workspace[1].trim() } as const
+  if (/^(?:(?:好[的吧]?|行|可以)[，,\s]+)?(?:确认建群|确认创建群聊|同意建群|可以建群|就这么建|就这样建|就按(?:这个|上面(?:的)?)?(?:方案)?建(?:群)?|confirm group|go ahead and create it)(?:吧|就行|即可)?$/iu.test(text) ||
+      pending && /^(?:就这么定|按这个来)(?:吧|就行|即可)?$/u.test(text)) return { kind: 'confirm' } as const
+  if (/^(?:取消建群|取消创建群聊|先不建群(?:了)?|不建群了|不用建了|别建了|先不建了|算了[，,\s]*先不建(?:了)?|cancel group)$/iu.test(text)) return { kind: 'cancel' } as const
+  const workspace = /^(?:(?:工作区|workspace)\s*:\s*|(?:建在|改到|放在|就放在)\s*)(.+?)(?:吧|就行)?$/iu.exec(text)
+  if (workspace && pending) return { kind: 'workspace', name: workspace[1].trim() } as const
+}
+
+function workspaceLabel(workspace: GroupWorkspace, all: GroupWorkspace[]) {
+  return all.some(other => other.id !== workspace.id && other.title === workspace.title)
+    ? `${workspace.title}（${workspace.path}）` : workspace.title
 }
 
 export function describeGroupProposal(proposal: GroupProposal, workspaces: GroupWorkspace[]) {
   const target = workspaces.find(workspace => workspace.id === proposal.workspaceId)
-  return [
-    `建群方案：${proposal.title}`,
-    `议题：${proposal.topic}`,
-    `现有成员：${proposal.members.map(member => member.name).join('、') || '无'}`,
-    ...proposal.newBots.map(bot => `建议新建 ${bot.name}：${bot.duty}`),
-    proposal.runTask ? '建群后将组织成员讨论，并把结论带回这里。' : '本次只建立群聊。',
-    target ? `目标工作区：${target.title}（${target.path}）` : '请先选择目标工作区。',
-    workspaces.length
-      ? `可用工作区：\n${workspaces.map(workspace => `• ${workspace.title}（${workspace.path}）`).join('\n')}`
-      : '请先在侧栏添加一个普通工作区。',
-    '回复「工作区：名称或路径」可选择或更改工作区。',
-    target && (proposal.newBots.length ? '同意在该工作区建群并创建上述新 Bot，请回复「确认建群」。' : '同意在该工作区建群，请回复「确认建群」。'),
-    '回复「取消建群」可取消。',
-  ].filter(Boolean).join('\n')
+  const existing = proposal.members.map(member => member.name).join('、')
+  const newBots = proposal.newBots.map(bot => `${bot.name}（${bot.duty}）`).join('、')
+  const names = [existing && `邀请 ${existing}`, newBots && `新建 ${newBots} 加入`].filter(Boolean).join('，并')
+  const place = target ? `在「${workspaceLabel(target, workspaces)}」` : ''
+  const task = proposal.runTask ? '，建好后开始讨论并把结论带回这里' : ''
+  const summary = `建议${place}建立「${proposal.title}」，${names}${task}。`
+  if (target) return `${summary} 可以这样建吗？`
+  if (!workspaces.length) return `${summary} 请先在侧栏添加一个普通工作区。`
+  return `${summary} 放在哪个工作区（${workspaces.map(item => workspaceLabel(item, workspaces)).join('、')}）？`
+}
+
+export function describeGroupChange(proposal: GroupProposal, previous: GroupProposal, workspaces: GroupWorkspace[]) {
+  const before = [...previous.members, ...previous.newBots].map(bot => bot.name)
+  const after = [...proposal.members, ...proposal.newBots].map(bot => bot.name)
+  const added = after.filter(name => !before.includes(name))
+  const removed = before.filter(name => !after.includes(name))
+  const target = workspaces.find(workspace => workspace.id === proposal.workspaceId)
+  const updates = [
+    proposal.title !== previous.title && `群名改为「${proposal.title}」`,
+    added.length && `加入 ${added.join('、')}`,
+    removed.length && `移除 ${removed.join('、')}`,
+    target && proposal.workspaceId !== previous.workspaceId && `工作区改为「${workspaceLabel(target, workspaces)}」`,
+  ].filter(Boolean).join('，')
+  if (!target) return describeGroupProposal(proposal, workspaces)
+  const newBots = proposal.newBots.filter(bot => !previous.newBots.some(old => old.name === bot.name && old.duty === bot.duty))
+  const approval = newBots.length ? `同意新建${newBots.map(bot => ` ${bot.name}（${bot.duty}）`).join('、')}并建群吗？` : '按修改后的方案建群吗？'
+  return updates ? `${updates}。 ${approval}` : approval
 }

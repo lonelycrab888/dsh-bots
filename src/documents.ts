@@ -6,7 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { FileBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
-const maxFileBytes = 20 * 1024 * 1024
+export const maxDocumentBytes = 20 * 1024 * 1024
 const maxDocumentChars = 1_000_000
 const maxToolChars = 12_000
 
@@ -45,14 +45,14 @@ export async function admitLocalDocument(ctx: Context, path: string, signal: Abo
   try {
     const stat = await file.stat()
     if (!stat.isFile()) throw new Error(`「${name}」不是普通文件。`)
-    if (stat.size > maxFileBytes) throw new Error(`「${name}」超过 20 MB，请拆分后发送。`)
+    if (stat.size > maxDocumentBytes) throw new Error(`「${name}」超过 20 MB，请拆分后发送。`)
     // The final extra byte detects files that grow between stat and read.
-    const stream = file.createReadStream({ autoClose: false, end: maxFileBytes, signal })
+    const stream = file.createReadStream({ autoClose: false, end: maxDocumentBytes, signal })
     const data = (async function* () {
       let bytes = 0
       for await (const chunk of stream) {
         bytes += chunk.length
-        if (bytes > maxFileBytes) throw new Error(`「${name}」超过 20 MB，请拆分后发送。`)
+        if (bytes > maxDocumentBytes) throw new Error(`「${name}」超过 20 MB，请拆分后发送。`)
         yield chunk as Uint8Array
       }
     })()
@@ -125,7 +125,7 @@ export function registerDocumentReader(ctx: Context, files: readonly FileBlock[]
       if (!Number.isSafeInteger(number) || number < 1 || !files[number - 1]) throw new Error('请选择消息中已上传的文档编号。')
       if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('文字偏移量必须是非负整数。')
       const { attachment } = files[number - 1]
-      if (attachment.bytes > maxFileBytes) throw new Error('此文档超过 20 MB，请拆分后上传。')
+      if (attachment.bytes > maxDocumentBytes) throw new Error('此文档超过 20 MB，请拆分后上传。')
       const key = `${attachment.attachmentId}:${attachment.name}`
       let text = cache.get(key)
       if (text === undefined) {

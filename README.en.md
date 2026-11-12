@@ -6,7 +6,14 @@
 
 `dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**Current version `v0.3.3`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Current version `v0.3.4`** · **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+
+## Fixes in v0.3.4
+
+- In the dedicated chat, KingBot creates or reuses child Bots and revises group proposals in natural language. A short confirmation shows the workspace and members, with task details available on demand. The confirmation button and a written reply apply to the same proposal.
+- You can stop, redirect, or mention one Bot while KingBot or a member is working. KingBot pauses dispatch and asks when it detects a possible interruption but cannot determine the intent.
+- A failed moderation request is retried. KingBot can continue with an eligible speaker and mark missing contributions or evidence in the summary.
+- Group chats import each attachment independently, so usable documents remain available. Bots explain unavailable tools, sandbox denials, and operations that require interactive approval.
 
 ## Fixes in v0.3.3
 
@@ -66,7 +73,7 @@ The group chat fills the available height. The timeline and member bar follow th
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.3.tgz` from the [v0.3.3 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.3).
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.4.tgz` from the [v0.3.4 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.4).
 
 To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
@@ -78,7 +85,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs directly from the main branch. Its v0.3.3 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
+`#main` installs directly from the main branch. Its v0.3.4 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 
@@ -115,7 +122,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.3.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.4.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
@@ -177,7 +184,7 @@ You can start a new task directly in the same group. To continue an earlier disc
 
 ### Files, web tools, and skills
 
-Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who replies. If the desktop composer inserts only `@/absolute/path` or `@"absolute path with spaces"`, the plugin saves the file as an attachment. Supported documents include text, Word `.docx`, and PDFs with a text layer, up to 20 MB each. Follow-ups on the same topic can reuse those attachments. Scanned PDFs need text recognition first.
+Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who replies. If the desktop composer inserts only `@/absolute/path` or `@"absolute path with spaces"`, the plugin saves the file as an attachment. Supported documents include text, Word `.docx`, and PDFs with a text layer, up to 20 MB each. Each import failure is reported separately, and the remaining attachments are still available. Follow-ups on the same topic can reuse those attachments. Scanned PDFs need text recognition first.
 
 KingBot and child Bots inherit the conversation's Harness Agent preset, working directory, and sandbox policy when executing tasks. The preset and host configuration determine which tools are available, including file tools from `@deepseek-ai/dsh-tool-fs` and available `web_search` and `web_fetch` tools. Web search uses the provider and credentials configured in Harness. Delegated sessions use Harness's noninteractive approval policy. Operations that require interactive approval are denied.
 
@@ -185,11 +192,11 @@ Bots can load `SKILL.md` with `skill` and open referenced files with `read`. `@d
 
 ## Ask KingBot to set up a group and follow through
 
-In the dedicated conversation, ask KingBot to discuss an earlier topic with a group and return a result. KingBot proposes a title, a brief, existing members, and any new Bots it thinks are needed. You can name members yourself or ask for a group without a task.
+In the dedicated conversation, ask KingBot to discuss an earlier topic with a group and return a result. KingBot briefly confirms the title and members and proposes specific roles to fill any gaps. You can name members yourself or ask for a group without a task.
 
-1. Review the brief, members, and any proposed Bot names and duties.
-2. Reply `Workspace: name or path` to choose or change the workspace. If there is one eligible workspace, KingBot shows it for approval. Use the full path to distinguish duplicate names.
-3. Reply `Confirm group` to approve the destination and any proposed new Bots, or `Cancel group` to cancel.
+1. Review the members and expand **查看群聊任务** (View group task) when there is a task. Say “Replace the reviewer with the statistician” to update the roster.
+2. Reply `Workspace: name or path` to choose or change the workspace. Use the full path to distinguish duplicate names.
+3. Click **确认建群** (Confirm group) or reply `Confirm group` to approve the destination and any proposed new Bots. Click **取消方案** (Cancel proposal) or reply `Cancel group` to cancel.
 
 KingBot adds an **打开群聊** (Open group) button to the original conversation. When the approved group has a task, KingBot moderates the discussion and posts the resulting conclusion there. A group created without a task waits for a message.
 

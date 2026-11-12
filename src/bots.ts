@@ -52,7 +52,7 @@ export type Row =
   | { id: string; author: 'user'; text: string; continues?: true; control?: true; documents?: FileBlock[] }
   | { id: string; author: 'notice'; text: string; sessionId?: string; tone?: 'info' }
   | { id: string; author: 'bot'; botId: BotId; text: string; status: 'working' | 'done' | 'error' | 'stopped' }
-export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string }
+export interface Group { sessionEpoch?:number; mode?: 'group' | 'king'; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string; confirmation?: { id: string; ready: boolean; task?: string } }
 
 /** An empty result asks the coordinator to select members. */
 export function resolveTargets(text: string, members: readonly Member[]): Member[] {
@@ -147,6 +147,7 @@ export const requestedBotDefinition = z.object({
 })
 const requestedBots = z.array(requestedBotDefinition.extend({
   evidence: z.string().trim().min(3).max(2000),
+  reuse: z.boolean().optional(),
 })).min(1).max(6)
 
 export function createRequestedBots(library: Library, raw: unknown, user: string, uuid: () => string) {
@@ -165,22 +166,29 @@ export function createRequestedBots(library: Library, raw: unknown, user: string
   }
   const userText = user.normalize('NFKC')
   const existing = new Set<Bot>()
+  const conflicts = new Map<string, string>()
   const byName = new Map(library.bots.map(bot => [normalizeName(bot.name), bot]))
   const pending = new Map<string, { name: string; duty: string }>()
-  for (const { name, duty, evidence } of parsed.data) {
+  for (const { name, duty, evidence, reuse } of parsed.data) {
     if (!userText.includes(evidence.normalize('NFKC'))) throw new Error('创建 Bot 缺少本轮用户原文依据')
     const key = normalizeName(name)
     if (isCoordinatorName(name) || key === normalizeName('主Bot')) throw new Error(`“${name}”是主 Bot 的保留名称`)
     const saved = byName.get(key)
     if (saved) {
-      existing.add(saved)
+      if (reuse || saved.duty.normalize('NFKC') === duty.normalize('NFKC')) existing.add(saved)
+      else conflicts.set(key, saved.name)
       continue
     }
+    if (conflicts.has(key)) continue
     const other = pending.get(key)
-    if (other && other.duty !== duty) throw new Error(`“${name}”对应多项职责，请为不同子 Bot 使用不同名称`)
+    if (other && other.duty !== duty) {
+      pending.delete(key)
+      conflicts.set(key, other.name)
+      continue
+    }
     pending.set(key, other ?? { name, duty })
   }
   if (library.bots.length + pending.size > 100) throw new Error('Bot 定义库最多保存 100 个成员（含已停用成员），请先清理不再使用的成员')
   const created = Array.from(pending.values(), bot => ({ ...bot, id: `bot-${uuid()}`, archived: false }))
-  return { library: validateLibrary({ ...library, bots: [...library.bots, ...created] }), created, existing: [...existing] }
+  return { library: validateLibrary({ ...library, bots: [...library.bots, ...created] }), created, existing: [...existing], conflicts: [...conflicts.values()] }
 }

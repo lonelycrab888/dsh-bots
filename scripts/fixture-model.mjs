@@ -25,12 +25,14 @@ class Fixture extends LlmAdapter {
     const intentCheck = systemText.includes('判断群聊用户新消息的语义')
     const latest = input && role !== '默认' ? JSON.parse(input).最新用户消息 : undefined
     let slow = false
+    let failure
     let toolCall
     let text = `${role} | ${input.includes('架构说明') ? '看到了架构说明' : '已收到'}`
     if (role === 'KingBot') {
       if (intentCheck) {
         const { 用户新消息: requested } = JSON.parse(latest)
         text = requested.includes('把时间留给我') ? '{"kind":"pause"}'
+          : requested.includes('方向改成什么先等等') ? '无法判断'
           : requested.includes('换个方向') ? JSON.stringify({ kind: 'redirect', task: requested.split('，').at(-1) })
           : '{"kind":"continue"}'
       } else if (moderator) {
@@ -45,18 +47,26 @@ class Fixture extends LlmAdapter {
           if (!retry) text = '{"kind":"close"}'
           else if (last) text = '我会请其他成员继续讨论。'
         }
+        if (state.议题.includes('验收首次主持故障') && !state.已有讨论.length) {
+          if (state.上次决定被拒绝 === undefined) failure = '测试主持请求失败'
+          else text = '无法返回有效的主持决定'
+        }
+        if (state.议题.includes('验收主持等待中接管') && !state.已有讨论.length) slow = true
         if (state.议题.includes('验收插话后只核对核心证据') && !state.已有讨论.length) {
           text = state.上次决定被拒绝 ? '我现在可以请审阅员发言。' : '{"kind":"close"}'
         }
       } else if (systemText.includes('请总结你主持的讨论')) {
         text = 'KingBot | 讨论汇总完成'
-      } else if (systemText.includes('这是你与用户的专属对话') && /方案\/流程助手|资料核对助手/.test(latest)) {
+      } else if (systemText.includes('这是你与用户的专属对话') && /方案\/流程助手|资料核对助手|方法论\/实验设计助手|这几个都帮我建立一下/.test(latest)) {
         const evidence = latest.replace(/^原始请求：/, '').split('\n上次回复校验失败：')[0]
-        const names = evidence.includes('方案/流程助手') ? ['方案/流程助手', '记录助手'] : ['资料核对助手']
+        const names = evidence.includes('方案/流程助手') ? ['方案/流程助手', '记录助手']
+          : evidence.includes('方法论/实验设计助手') || evidence.includes('这几个都帮我建立一下')
+            ? ['实验设计助手', '数据分析助手', '批判性审稿助手', '学术写作助手'] : ['资料核对助手']
         text = JSON.stringify({ tasks: [], botActions: names.map(name => ({
           name,
           evidence,
-          duty: name === '资料核对助手' && !latest.includes('上次回复校验失败：') ? '' : '整理并核对合成验收资料',
+          duty: name === '资料核对助手' && !latest.includes('上次回复校验失败：') ? ''
+            : name === '实验设计助手' ? '评估研究方法论并提出实验设计' : '整理并核对合成验收资料',
         })) })
       } else if (systemText.includes('这是你与用户的专属对话') && /完成离线清单方案|新建空白验收群聊|新建记忆隔离验收群聊/.test(latest)) {
         const available = JSON.parse(systemText.match(/可用成员：(\[.*?\])。普通工作区：/su)[1])
@@ -69,6 +79,8 @@ class Fixture extends LlmAdapter {
           runTask,
           evidence: latest,
         } })
+      } else if (systemText.includes('这是你与用户的专属对话')) {
+        text = '{"reply":"这条消息没有提出建群操作。"}'
       } else if (systemText.includes('你现在负责规划')) {
         const members = JSON.parse(systemText.match(/只能向下列成员派发任务：(\[.*?\])。/su)[1])
         const required = JSON.parse(systemText.match(/用户点名的成员ID：(\[.*?\])。/su)[1])
@@ -77,8 +89,16 @@ class Fixture extends LlmAdapter {
     } else if (discussion || addressed || role === '默认') {
       const state = discussion ? JSON.parse(latest) : { 议题: addressed ? latest : input, 已有讨论: [] }
       const last = state.已有讨论.at(-1)
-      slow = role === '架构师' && /验收实时插话原议题|验收暂停原议题|验收语义暂停原议题|验收换任务原议题|验收优先点名原议题/u.test(state.议题)
+      slow = role === '架构师' && /验收实时插话原议题|验收暂停原议题|验收语义暂停原议题|验收待确认原议题|验收换任务原议题|验收优先点名原议题/u.test(state.议题)
       if (addressed || discussion) text = addressed ? `${role} | 直接回复` : last ? `${role} | 回应 ${last.name}` : `${role} | 初步观点`
+      if (state.议题.includes('验收首次主持故障') && role === '审阅员') failure = '等待该成员回复超时。'
+      if (state.议题.includes('验收多附件')) {
+        const results = toolResults.flatMap(result => result.content).filter(block => block.type === 'text').map(block => block.text)
+        if (!results.length && tools.some(tool => tool.name === 'read_uploaded_document')) toolCall = { name: 'read_uploaded_document', arguments: '{"number":1}' }
+        else if (results.length === 1) toolCall = { name: 'read_uploaded_document', arguments: '{"number":2}' }
+        else text = results.some(result => result.includes('DOCUMENT-CANARY-617')) && results.some(result => result.includes('PDF-CANARY-903') && result.includes('第 1 页'))
+          ? `Word 和 PDF 第 1 页可读${systemText.includes('missing-path.docx') ? '，缺失的文件无法核对' : ''}。` : '当前议题没有这两份附件。'
+      }
       if (state.议题.includes('验收读取拖入文档') || state.议题.includes('验收读取本地引用') || state.议题.includes('验收读取本地 Word 引用')) {
         const result = toolResults.at(-1)
         if (result) {
@@ -123,9 +143,10 @@ class Fixture extends LlmAdapter {
         duty: systemText.match(/你的职责是：([^\n]+)/u)?.[1],
         seesGroupFact: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('GROUP-A-ONLY-496'))),
         seesWorkspaceInstructions: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('WORKSPACE-INSTRUCTIONS-756'))),
-        calledTool: toolCall?.name, tools: (tools ?? []).map(tool => tool.name) }) + '\n')
+        calledTool: toolCall?.name, failure, tools: (tools ?? []).map(tool => tool.name) }) + '\n')
     }
     await delay(slow ? 12_000 : 450, undefined, { signal })
+    if (failure) throw new Error(failure)
     if (toolCall) {
       const block = { type: 'tool-call', id: `fixture-tool-call-${messages.filter(message => message.role === 'tool').length + 1}`, ...toolCall }
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }

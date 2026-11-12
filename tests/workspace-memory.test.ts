@@ -91,3 +91,15 @@ test('King accepts colloquial batches and normalizes names while requiring a dir
   }
   assert.throws(() => createRequestedBots(defaultLibrary, [{ ...actions[0], name: '///' }], user, () => assert.fail()), /第 1 个子 Bot：名称/)
 })
+
+test('King isolates a name conflict while creating the remaining requested roles', () => {
+  const user = '请创建实验设计助手和数据分析助手'
+  const library = { ...defaultLibrary, bots: [{ id: 'existing-design', name: '实验设计助手', duty: '审核摄影构图', archived: false }] }
+  const result = createRequestedBots(library, [
+    { name: '实验设计助手', duty: '保留方法论和研究实验设计要求', evidence: user },
+    { name: '数据分析助手', duty: '处理数据并检查统计假设', evidence: user },
+  ], user, () => 'new-analysis')
+  assert.deepEqual(result.conflicts, ['实验设计助手'])
+  assert.deepEqual(result.created.map(bot => bot.name), ['数据分析助手'])
+  assert.deepEqual(result.library.bots[0], library.bots[0])
+})

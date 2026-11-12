@@ -34,27 +34,35 @@ export function discussionInstructions(mayClose: boolean, correction?: string): 
   ].filter(Boolean).join('\n')
 }
 
-export type DiscussionIntent = { kind: 'continue' | 'pause' } | { kind: 'redirect'; task: string }
+export type DiscussionIntent = { kind: 'continue' | 'pause' | 'clarify' } | { kind: 'redirect'; task: string }
 
 const pauseOnly = /^(?:请|麻烦|先|现在|赶紧|马上|立即|可以|就|大家|各位|先让大家|让大家|KingBot|主Bot|[，,\s])*(?:(?:停止|暂停|终止|中止|结束|打断)(?:(?:这轮|本轮|当前|现在的|这次|一下|群聊)\s*)*(?:讨论|发言|派发|回复|任务|生成)?|(?:先)?(?:停|等|缓|等等|停停)(?:一?下|一?会儿?|一?阵|一?分钟)?|到此为止|先到这(?:里|儿)?|(?:不用|不要|别)(?:再|继续)?(?:派发|发言|讨论|继续)(?:任务|了)?)(?:一下|了|吧|好吗|好不好)?[。.!！?？\s]*$/iu
 const interruptCues = /(?:停(?:止|顿|下|一[下会])|暂停|别.{0,8}(?:继续|发言|派发|往下|说|聊)|不要.{0,8}(?:继续|发言|派发|往下)|不用.{0,8}(?:继续|发言|派发|往下|做了)|等(?:等|一下|会儿)|慢着|先听我|我(?:自己|先)来|歇(?:一歇|会儿)|先别忙|放一放|先搁置|暂时不|到此为止|先到这|中[止断]|打断|终止|结束(?:现在的|当前|这轮|本轮)?讨论|换(?:个|一个|成|一下|个新的)?(?:方向|任务|话题|思路|议题)|改成|转(?:向|到)|跑偏了|方向不对|取消(?:现在的|当前|这轮|本轮)?(?:讨论|任务)|接下来先)|\b(?:stop|pause|hold on|wait|switch|redirect|change direction|new topic|new task|drop that|set that aside|end (?:the )?discussion)\b/iu
 
 export function explicitDiscussionPause(text: string): boolean {
   const command = text.normalize('NFKC').trim().replace(/^@(?:KingBot|主Bot|Bots\s+King)\s*[，,：:\s]*/i, '')
-  return pauseOnly.test(command) || /^(?:please\s+)?(?:stop|pause|hold on|wait|stop now|(?:stop|pause|end) (?:the |this )?(?:discussion|conversation|task)|no more (?:discussion|replies))[.!?\s]*$/i.test(command)
+  return pauseOnly.test(command) ||
+    /^(?:(?:这|那)(?:块|部分|个(?:事|话题)|项(?:任务)?)\s*)?(?:先\s*)?(?:放一放|搁置一下)[。.!！\s]*$/u.test(command) ||
+    /^(?:please\s+)?(?:stop|pause|hold on|wait|stop now|(?:stop|pause|end) (?:the |this )?(?:discussion|conversation|task)|no more (?:discussion|replies))[.!?\s]*$/i.test(command)
+}
+
+export function keepsDiscussionGoing(text: string): boolean {
+  return /^(?:(?:别|不要|不用)(?:停下|停止|暂停|停)(?:讨论|发言)?[，,\s]*(?:请)?(?:继续|接着)(?:说|讲|讨论|分析)?|(?:don't|do not) (?:stop|pause)[,;\s]+(?:please )?(?:continue|keep going))[。.!！\s]*$/iu.test(text.normalize('NFKC').trim())
 }
 
 export function mayRedirectDiscussion(text: string): boolean {
-  return interruptCues.test(text.normalize('NFKC'))
+  const direct = text.normalize('NFKC').replace(/\x60{3}[\s\S]*?(?:\x60{3}|$)|^\s*>[^\n]*|“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』|"[^"\n]*"|\x60[^\x60\n]*\x60/gmu, ' ')
+  return !keepsDiscussionGoing(direct) && interruptCues.test(direct)
 }
 
 export function parseDiscussionIntent(output: string, message: string): DiscussionIntent {
   const value = JSON.parse(output.trim().replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, '')) as { kind?: unknown; task?: unknown } | null
-  if (value?.kind === 'pause') return { kind: 'pause' }
+  if (value?.kind === 'pause' || value?.kind === 'clarify') return { kind: value.kind }
   if (value?.kind === 'redirect' && typeof value.task === 'string') {
     const task = value.task.trim()
     // A redirect is a new user task, not a task invented by the classifier.
     if (task && message.includes(task)) return { kind: 'redirect', task }
   }
-  return { kind: 'continue' }
+  if (value?.kind === 'continue') return { kind: 'continue' }
+  throw new Error('无法判断当前消息是否在变更讨论')
 }
