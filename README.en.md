@@ -11,8 +11,9 @@
 ## Fixes in v0.3.3
 
 - KingBot prioritizes requests to pause or change direction. It keeps completed replies and asks what to do next, or starts the replacement task the user supplied.
-- A single named Bot replies directly. Naming one Bot during a discussion gives the user's message priority. Each Bot uses its configured identity and role, with chat context scoped to the group.
-- Bots inherit the conversation's Harness tools, including `dsh-tool-fs`, configured web search, and `skill`. Harness loads workspace instructions. A dropped absolute path is saved as a readable document copy.
+- Mentioning one child Bot gives that Bot the turn. A single mention during a discussion can interrupt the active turn. Each Bot uses its configured identity and role, with chat context scoped to the group.
+- KingBot and child Bots inherit the conversation's Harness tool preset and working directory when executing tasks, including file tools, available web tools, and skills.
+- A document dropped into the desktop composer becomes a readable attachment even when the composer inserts only its absolute path.
 
 ## Fixes in v0.3.2
 
@@ -48,24 +49,24 @@
 1. **Choose the King workspace.** Open **Bots**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
 2. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities, or ask KingBot to create one in its dedicated conversation. A fresh installation shows only **KingBot**, the coordinator, with no preset child Bots. You create all child Bots yourself; KingBot joins every group automatically.
 3. **Start a group chat.** Create a conversation in a workspace other than the dedicated King workspace. Select **群聊** (Group chat) near the message box, choose members, and click **确认成员** (Confirm members). Select **默认** (Default) to use Harness's native conversation behavior.
-4. **Send a task.** Describe your goal in the native message box and let KingBot moderate the discussion. Use `@name` to restrict which child Bots participate in the current turn.
+4. **Send a task.** Describe your goal and let KingBot moderate. Mention one child Bot for a direct reply or mention several to have KingBot moderate among those members.
 5. **Read the results.** The timeline shows moderator questions, named member replies, and the coordinator's summary in order. Click a member below the timeline to insert a mention. The member bar scrolls horizontally when needed.
 
 | What you want | Example prompt |
 | --- | --- |
-| Let the coordinator assign work | “Design an offline task-list app. Ask members for implementation and acceptance-test suggestions, then summarize the results.” |
+| Ask KingBot to moderate | “Discuss the design of an offline task-list app. Compare implementation options and risks, then summarize the conclusion.” |
 | Ask one member | “@Architect Suggest the modules and explain the main technical tradeoffs.” |
-| Ask several members | “@Architect @Reviewer Propose a design, then check it for omissions and edge cases.” |
-| Ask the coordinator directly | “@KingBot Summarize the conclusions so far without assigning new tasks.” |
-| Save a personal preference | “@KingBot Remember that I prefer conclusions first, followed by implementation steps.” |
+| Ask several members | “@Architect @Reviewer Discuss gaps and edge cases in the design.” |
+| Pause the group | “Let's stop here. I want to rethink the direction.” |
+| Save a personal preference | In the dedicated KingBot conversation, say “Remember that I prefer conclusions first, followed by implementation steps.” |
 
-Architect and Reviewer are examples, not preinstalled Bots. Create and add the example members to the group before mentioning them. With no mentions, or only `@KingBot`, KingBot chooses who to invite to speak. Mentioning child Bots limits this turn's discussion to those members.
+Create and add the example Bots Architect and Reviewer before mentioning them. With no child Bot mentions, KingBot chooses who to invite from the group.
 
 The group chat fills the available height. The timeline and member bar follow the message box's width, with scrolling inside the timeline. The native **Team, Trajectory, and Context** views remain available.
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration; it does not need a separate API key.
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.3.tgz` from the [v0.3.3 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.3).
 
 To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
@@ -77,7 +78,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/dsh-bots.git#main
 ```
 
-`#main` installs the package on that branch, which supports both hosts.
+`#main` installs directly from the main branch. Its v0.3.3 package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 
@@ -111,17 +112,17 @@ npm ci
 npm run typecheck
 npm test
 npm run build
-npm pack
+package_file="$(npm pack --silent)"
 ```
 
-Add the generated package to the appropriate profile:
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.3.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/dsh-bots-0.3.1.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/$package_file"
 
 # Web
-dsh plugin --profile web add "$PWD/dsh-bots-0.3.1.tgz"
+dsh plugin --profile web add "$PWD/$package_file"
 ```
 
 ## Talk to KingBot directly
@@ -174,7 +175,13 @@ To redirect an active discussion, enter a new instruction and use Harness's Stee
 
 You can start a new task directly in the same group. To continue an earlier discussion, say “Please continue with the previous proposal.” Each member can speak up to twice per discussion. The design draws on Grok Bot's targeted mentions and visible handoffs. [Grok Bot group chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
 
-Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who can inspect the upload. When Desktop inserts an absolute path, the plugin saves a readable copy as an attachment. A follow-up on the same topic can reuse its attachments. Each document can be up to 20 MB. Scanned PDFs need text recognition first. Web search uses the current Harness provider and credentials. Bots can load `SKILL.md` using `skill` and open references with `read`. Harness loads `AGENTS.md` through `dsh-agent-instructions`, with the default limit of 65,536 bytes.
+### Files, web tools, and skills
+
+Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who replies. If the desktop composer inserts only `@/absolute/path` or `@"absolute path with spaces"`, the plugin saves the file as an attachment. Supported documents include text, Word `.docx`, and PDFs with a text layer, up to 20 MB each. Follow-ups on the same topic can reuse those attachments. Scanned PDFs need text recognition first.
+
+KingBot and child Bots inherit the conversation's Harness Agent preset, working directory, and sandbox policy when executing tasks. The preset and host configuration determine which tools are available, including file tools from `@deepseek-ai/dsh-tool-fs` and available `web_search` and `web_fetch` tools. Web search uses the provider and credentials configured in Harness. Delegated sessions use Harness's noninteractive approval policy. Operations that require interactive approval are denied.
+
+Bots can load `SKILL.md` with `skill` and open referenced files with `read`. `@deepseek-ai/dsh-agent-instructions` loads workspace instructions such as `AGENTS.md` according to the host configuration, with a default limit of 65,536 bytes.
 
 ## Ask KingBot to set up a group and follow through
 
@@ -198,11 +205,11 @@ KingBot adds an **打开群聊** (Open group) button to the original conversatio
 
 Long-term memory stores explicit requests, stable preferences, and lasting background information. **It does not automatically memorize the full text of every past group chat.** When memory and automatic updates are enabled, memories are extracted from the current user message and retain the supporting original text. Child Bot output is not automatically treated as a fact about the user. Only KingBot reads shared memory directly, though it may include relevant information in an assignment.
 
-Open **Bots → KingBot → 管理工作区记忆** (Manage workspace memory) to search, browse pages, add, edit, pin, archive, restore, and export entries. You can disable memory entirely or turn off automatic updates separately. You can also ask in a group chat:
+Open **Bots → KingBot → 管理工作区记忆** (Manage workspace memory) to search, browse pages, add, edit, pin, archive, restore, and export entries. You can disable memory entirely or turn off automatic updates separately. With memory and automatic updates enabled, you can say in the dedicated KingBot conversation:
 
 ```text
-@KingBot Remember: when proposing a solution, give the conclusion first and then the implementation steps.
-@KingBot Forget my earlier preference about response formatting.
+Remember: when proposing a solution, give the conclusion first and then the implementation steps.
+Forget my earlier preference about response formatting.
 ```
 
 There is no fixed total-entry limit and no limit tied to the number of group chats. Each entry can contain up to **600 characters**, with up to 3 automatic updates per turn. Local SQLite/FTS5 storage retrieves a bounded selection of pinned, matching, and recent entries for each request. Search uses keywords and Chinese bigrams rather than vector embeddings. See [memory design and references](MEMORY-DESIGN.md).
@@ -211,8 +218,8 @@ Removing an entry stops future shared-memory injection but does not delete the o
 
 ## Current scope
 
-- **Text group chats.** Bot tool calls are disabled. Group discussion supports text messages and replies.
-- **Host Agent runtime.** KingBot and child Bots use separate persistent Agent sessions. Using the host's Agent runtime does not enable all tools or change global Agent Loop settings.
+- **Group timeline.** Group chats support document attachments and Markdown replies. Bot replies appear when complete.
+- **Group context.** Each discussion uses its own Bot execution sessions. Follow-ups draw on relevant messages in the current group's history.
 - **Native controls.** The plugin uses the native message box, stop control, and model configuration, and preserves native views such as Team. Enhancement Switches is not required.
 - **History compatibility.** Two-Bot group histories from early development prototypes are supported. Sending another message in an old group adds KingBot automatically. The legacy `@主Bot` mention remains supported.
 
@@ -250,6 +257,6 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` uses Chrome, the Playwright CLI, and a local model stub to check installation, the KingBot workspace, batch creation, workspace confirmation, dynamic moderation, returning results, and resuming after restart in an isolated Web profile.
+`npm run smoke` uses Chrome, the Playwright CLI, and a local model stub in an isolated Web profile to check installation, group creation, dynamic moderation, pausing, mentions, returning results, recovery after restart, and context isolation across groups. It compares file reads, skill references, `AGENTS.md`, and `web_search` with a test provider in native sessions and group chats.
 
 The v0.2.1 reset feature was checked through the UI in an isolated profile with synthetic data, including separate member, memory, and association resets and recovery from a missing workspace directory.
