@@ -9,8 +9,8 @@
         "zh": "Bots 群聊"
       },
       "description": {
-        "en": "Named Bots, peer discussion, and KingBot summaries.",
-        "zh": "自定义 Bot、群聊互评和 KingBot 汇总。"
+        "en": "Named Bots and group discussions moderated by KingBot.",
+        "zh": "自定义 Bot 和由 KingBot 主持的群聊讨论。"
       },
       "author": "lonelycrab888",
       "homepage": "https://github.com/lonelycrab888/dsh-bots",
@@ -18,6 +18,30 @@
         "url": "https://github.com/lonelycrab888/dsh-bots"
       },
       "versions": [
+        {
+          "version": "0.3.1",
+          "publishTimestamp": 1794465711,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "commit": "b1990c919cb71f3643974752b91743a599945fd4"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1 || 0.2.2-rc.2"
+          }
+        },
+        {
+          "version": "0.2.2",
+          "publishTimestamp": 1794465711,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "commit": "cb31d17c342d4c307a55a9cb0fe933b6133c8547"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1"
+          }
+        },
         {
           "version": "0.3.0",
           "publishTimestamp": 1794461104,
