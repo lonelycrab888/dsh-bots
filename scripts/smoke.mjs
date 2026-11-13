@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import semver from 'semver'
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createRequire } from 'node:module'
@@ -278,7 +279,7 @@ async function exerciseTaskRecovery(defaultWorkspace) {
 
 try {
   const runtime = run('dsh', ['--version']).trim()
-  assert.ok(engines.dsh.split(' || ').includes(runtime), `Unsupported DSH smoke runtime: ${runtime}`)
+  assert.ok(semver.satisfies(runtime, engines.dsh), `Unsupported DSH smoke runtime: ${runtime}`)
   await mkdir(docs)
   const documentPath = join(dir, 'outside workspace.md')
   await writeFile(documentPath, '# Uploaded source\n\nDOCUMENT-CANARY-617\n')

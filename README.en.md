@@ -6,7 +6,7 @@
 
 `roundtable-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
-**DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
+**Requires DeepSeek Harness `>=0.2.2-rc.1`** (tested on rc.1 and rc.2) · Supports Desktop and Web
 
 ## How to use it
 

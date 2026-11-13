@@ -6,7 +6,7 @@
 
 `roundtable-bots` 为 DeepSeek Harness 添加自定义 Bot 和群聊模式。你可以给成员命名、定义职责、指定模型与思考强度，在原生输入框中描述任务或 `@` 指定成员，并在同一条时间线上查看各 Bot 的署名回复。
 
-**适用宿主 DeepSeek Harness `0.2.2-rc.1` 与 `0.2.2-rc.2`** · 支持桌面端与 Web
+**宿主要求 DeepSeek Harness `>=0.2.2-rc.1`**（已测试 rc.1 和 rc.2） · 支持桌面端与 Web
 
 ## 这样用
 
