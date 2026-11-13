@@ -24,10 +24,10 @@
           "source": {
             "type": "git",
             "url": "https://github.com/lonelycrab888/roundtable-bots",
-            "commit": "cc2540c1301add59cd1329b6e6e11b003389990e"
+            "commit": "aedc466b0de840867729bbec2cdc36d767486d1c"
           },
           "engines": {
-            "dsh": "0.2.2-rc.1 || 0.2.2-rc.2"
+            "dsh": ">=0.2.2-rc.1"
           }
         },
         {
