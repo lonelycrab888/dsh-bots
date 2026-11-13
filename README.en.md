@@ -32,16 +32,16 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.10.tgz`. [v0.3.10 release](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.10)
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.10.tgz`. [v0.3.10 release](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.10)
 
-To upgrade, quit Harness, run `add` against the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
+The repository is now `roundtable-bots`, and the plugin package is still named `dsh-bots`. To upgrade, quit Harness, install from the new address below in the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
 
 ### Desktop
 
 Open **Plugins → Add Plugin**, select the **official npm registry** as the installation source, and paste this Git URL into **Package name or address**:
 
 ```text
-git+https://github.com/lonelycrab888/dsh-bots.git#main
+git+https://github.com/lonelycrab888/roundtable-bots.git#main
 ```
 
 `#main` installs directly from the main branch. The package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
@@ -53,7 +53,7 @@ git+https://github.com/lonelycrab888/dsh-bots.git#main
 3. Paste the URL below and select **Add**. Close the dialog and open **Bots Group Chat** in the **dsh-bots** index to see the recommended version.
 
 ```text
-https://raw.githubusercontent.com/lonelycrab888/dsh-bots/main/market-index.json
+https://raw.githubusercontent.com/lonelycrab888/roundtable-bots/main/market-index.json
 ```
 
 Enable **dsh-bots** in the Plugins panel after installation. If **Bots** does not appear in the sidebar, finish any running tasks, fully quit the desktop app, and reopen it.
@@ -63,7 +63,7 @@ The Git URL locates the plugin; the npm registry supplies its dependencies. If G
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#main'
+dsh plugin --profile web add 'git+https://github.com/lonelycrab888/roundtable-bots.git#main'
 dsh web
 ```
 

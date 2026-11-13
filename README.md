@@ -32,16 +32,16 @@
 
 ## 安装
 
-先在 Harness 的标准 API 配置中配置可用模型。插件直接使用宿主模型配置。需要本地安装包时，可下载 `dsh-bots-0.3.10.tgz`。 [v0.3.10 发布页](https://github.com/lonelycrab888/dsh-bots/releases/tag/v0.3.10)
+先在 Harness 的标准 API 配置中配置可用模型。插件直接使用宿主模型配置。需要本地安装包时，可下载 `dsh-bots-0.3.10.tgz`。 [v0.3.10 发布页](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.10)
 
-升级已有安装时，先退出宿主，在同一 profile 执行 `add`，然后重新打开。已有 Bot 配置、记忆库和聊天历史沿用原存储。
+仓库已更名为 `roundtable-bots`，插件包名仍是 `dsh-bots`。升级时先退出宿主，使用下方新地址在原 profile 覆盖安装，然后重新打开。已有 Bot 配置、记忆库和聊天历史沿用原存储。
 
 ### 桌面端
 
 打开 **插件 → 添加插件**，将 **安装源** 选为 **npm 官方源**，把下面的 Git 地址粘贴到 **包名或地址**：
 
 ```text
-git+https://github.com/lonelycrab888/dsh-bots.git#main
+git+https://github.com/lonelycrab888/roundtable-bots.git#main
 ```
 
 `#main` 固定从主分支安装，该分支同时适配 `rc.1` 与 `rc.2`。需要按宿主版本自动选择最新兼容发行版时，使用下方插件索引。
@@ -53,7 +53,7 @@ git+https://github.com/lonelycrab888/dsh-bots.git#main
 3. 粘贴下面的 URL，点击 **添加**。关闭对话框后，在 **dsh-bots** 索引中打开 **Bots 群聊** 查看推荐版本。
 
 ```text
-https://raw.githubusercontent.com/lonelycrab888/dsh-bots/main/market-index.json
+https://raw.githubusercontent.com/lonelycrab888/roundtable-bots/main/market-index.json
 ```
 
 安装后在插件页启用 **dsh-bots**。若侧栏没有出现 **Bots**，请先结束正在运行的任务，再完整退出并重新打开桌面端。
@@ -63,7 +63,7 @@ Git 地址用于获取插件，npm 源用于下载依赖。如果安装日志显
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/lonelycrab888/dsh-bots.git#main'
+dsh plugin --profile web add 'git+https://github.com/lonelycrab888/roundtable-bots.git#main'
 dsh web
 ```
 

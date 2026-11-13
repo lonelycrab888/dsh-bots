@@ -13,9 +13,9 @@
         "zh": "自定义 Bot 和由 KingBot 主持的群聊讨论。"
       },
       "author": "lonelycrab888",
-      "homepage": "https://github.com/lonelycrab888/dsh-bots",
+      "homepage": "https://github.com/lonelycrab888/roundtable-bots",
       "repository": {
-        "url": "https://github.com/lonelycrab888/dsh-bots"
+        "url": "https://github.com/lonelycrab888/roundtable-bots"
       },
       "versions": [
         {
@@ -23,7 +23,7 @@
           "publishTimestamp": 1794500051,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "dbf19559a71e80ee8f5c6060c4b359f62f65bbd3"
           },
           "engines": {
@@ -35,7 +35,7 @@
           "publishTimestamp": 1794499106,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "470b5a8a006d3a266fa9f6ec688b77b8a28daa08"
           },
           "engines": {
@@ -47,7 +47,7 @@
           "publishTimestamp": 1794493860,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "356853d5905ebdbf6abf7a5e545b6b7f680eb6a5"
           },
           "engines": {
@@ -59,7 +59,7 @@
           "publishTimestamp": 1794489052,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "2a437fc7766b70a5bc53649c76129254709bcf0d"
           },
           "engines": {
@@ -71,7 +71,7 @@
           "publishTimestamp": 1794485822,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "83f093193e4a2cf8e0b343874e74776218df0b71"
           },
           "engines": {
@@ -83,7 +83,7 @@
           "publishTimestamp": 1794483501,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "85a2bef70c92e409b47310a1927b4c1a1ae30ccf"
           },
           "engines": {
@@ -95,7 +95,7 @@
           "publishTimestamp": 1794479037,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "1215673c3767df095ecef7d227774a2733352e42"
           },
           "engines": {
@@ -107,7 +107,7 @@
           "publishTimestamp": 1794471903,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "92f0539ee33f0a281c739f3f27535c781b1a916e"
           },
           "engines": {
@@ -119,7 +119,7 @@
           "publishTimestamp": 1794468960,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "ebeb7b466dd305469b6d05890e3e74b56e0c935c"
           },
           "engines": {
@@ -131,7 +131,7 @@
           "publishTimestamp": 1794465711,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "b1990c919cb71f3643974752b91743a599945fd4"
           },
           "engines": {
@@ -143,7 +143,7 @@
           "publishTimestamp": 1794465711,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "cb31d17c342d4c307a55a9cb0fe933b6133c8547"
           },
           "engines": {
@@ -155,7 +155,7 @@
           "publishTimestamp": 1794461104,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "97547f57329d39ba6a598f76cc881fd266a7647b"
           },
           "engines": {
@@ -167,7 +167,7 @@
           "publishTimestamp": 1794432733,
           "source": {
             "type": "git",
-            "url": "https://github.com/lonelycrab888/dsh-bots",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
             "commit": "072288a21b89cc2c7f9d8187c188aec0e84a8f63"
           },
           "engines": {
