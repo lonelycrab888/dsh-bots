@@ -23,7 +23,7 @@ function BotsIcon({ size }: { size: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block', flexShrink: 0 }}><path d="M12 3v3M9 3h6M5 9l-2 2v6l2 2M19 9l2 2v6l-2 2"/><rect x="5" y="6" width="14" height="15" rx="5"/><path d="M8 11l2 1M16 11l-2 1M9 16q3 2 6 0"/></svg>
 }
 
-interface CatalogSnapshot { resetPending?:PendingReset|null; workspace?: {path:string;sessionId:string}; library: Library; kingMemory: KingMemory; revision: number; writable: boolean }
+interface CatalogSnapshot { resetEpoch?:number; resetPending?:PendingReset|null; workspace?: {path:string;sessionId:string}; library: Library; kingMemory: KingMemory; revision: number; writable: boolean }
 interface CatalogAPI {
   reset(options:ResetOptions,revision:number):Promise<void>
   pickDirectory():Promise<string|null>
@@ -97,7 +97,7 @@ function DirectoryManagement({snapshot,catalog,disabled,done,showArchived,setSho
   const pending=snapshot.resetPending,options=pending?.options??selected
   async function submit(){
     setBusy(true);setError('');setStatus('')
-    try{await catalog.reset(options,snapshot.revision);await done();setOpen(false);setConfirmation('');setSelected({members:false,memory:false,sessions:false});setStatus('所选数据已重置。若已解除旧会话关联，请重新选择工作区。')}
+    try{await catalog.reset(options,snapshot.revision);await done();setOpen(false);setConfirmation('');setSelected({members:false,memory:false,sessions:false});setStatus(options.sessions?'所选数据已重置，请重新选择工作区。':options.memory?'长期记忆已清空，旧独聊已归档。点击「与 KingBot 对话」开始新的对话。':'所选数据已重置。')}
     catch(e){setError(messageOf(e));await done().catch(()=>{})}finally{setBusy(false)}
   }
   return <section className="dsh-bots-directory-management" aria-label="Bots 目录管理">
@@ -105,10 +105,10 @@ function DirectoryManagement({snapshot,catalog,disabled,done,showArchived,setSho
       <label className="dsh-bots-archive-filter"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} />显示已停用 Bot</label>
       <button type="button" className="dsh-bots-reset-toggle" aria-expanded={open} aria-controls={open ? resetId : undefined} disabled={disabled||busy} onClick={()=>{setOpen(!open);setConfirmation('');setError('')}}>重置 Bots 数据</button>
     </div>
-    {pending&&<p role="alert">上次重置尚未完成，请打开重置面板继续完成原先选择的项目。</p>}
+    {pending&&<p role="alert">{pending.options.conversation?'上次清空页面尚未完成，请打开面板继续完成；长期记忆会保留。':'上次重置尚未完成，请打开重置面板继续完成原先选择的项目。'}</p>}
     {open&&<div id={resetId} className="dsh-bots-editor dsh-bots-reset">
       <strong>选择要重置的项目</strong>
-      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 KingBot 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空当前工作区全部有效及已移出记忆和旧版迁移记忆；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
+      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 KingBot 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空当前工作区全部长期记忆，并归档当前独聊、开启空白上下文；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
       <p>只重置勾选项目。此操作不能在插件中撤销；原聊天历史、已导出的文件和其他工作区的记忆文件不会删除。重置后使用新的 Bot 执行上下文。</p>
       <label>输入 RESET 确认<input aria-label="重置确认文字" value={confirmation} disabled={busy} onChange={e=>setConfirmation(e.target.value)} autoComplete="off"/></label>
       <div className="dsh-bots-actions"><button type="button" disabled={busy} onClick={()=>setOpen(false)}>取消重置</button><button type="button" disabled={disabled||busy||confirmation!=='RESET'||!Object.values(options).some(Boolean)} onClick={()=>void submit()}>{busy?'正在重置…':pending?'继续未完成的重置':'确认重置所选数据'}</button></div>
@@ -123,8 +123,15 @@ function WorkspaceMemoryPanel({catalog,snapshot,reload}:{catalog:CatalogAPI;snap
   const [archived,setArchived]=useState(false),[offset,setOffset]=useState(0)
   const [draft,setDraft]=useState<{id?:string;text:string}>()
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState('')
-  async function load(){setBusy(true);setError('');try{setPage(await catalog.memory<MemoryPage>({action:'list',query:search,archived,offset}))}catch(e){setError(messageOf(e))}finally{setBusy(false)}}
-  useEffect(()=>{void load()},[search,archived,offset,snapshot.workspace?.path])
+  const requestVersion=useRef(0)
+  async function load(){
+    const version=++requestVersion.current;setBusy(true);setError('')
+    try{const result=await catalog.memory<MemoryPage>({action:'list',query:search,archived,offset});if(version===requestVersion.current)setPage(result)}
+    catch(e){if(version===requestVersion.current)setError(messageOf(e))}
+    finally{if(version===requestVersion.current)setBusy(false)}
+  }
+  useEffect(()=>{setOffset(0);setDraft(undefined);setStatus('');setPage(undefined)},[snapshot.resetEpoch])
+  useEffect(()=>{void load();return()=>{requestVersion.current++}},[search,archived,offset,snapshot.workspace?.path,snapshot.revision])
   async function edit(entry:Record<string,unknown>){if(!page)return;setBusy(true);setError('');try{await catalog.memory({action:'edit',entry,revision:page.revision});setDraft(undefined);await load()}catch(e){setError(messageOf(e));setBusy(false)}}
   async function settings(change:Record<string,boolean>){setBusy(true);setError('');try{await catalog.memory({action:'settings',...change});await reload()}catch(e){setError(messageOf(e))}finally{setBusy(false)}}
   return <div className="dsh-bots-memory">
@@ -176,7 +183,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
     } catch (error) { setError(messageOf(error)) }
     finally { setBusy(false) }
   }
-  useEffect(() => { void load() }, [catalog])
+  useEffect(() => { void load();return catalog.subscribe(()=>{void catalog.load().then(setSnapshot).catch(error=>setError(messageOf(error)))}) }, [catalog])
   async function save(library: Library, message: string) {
     if (!snapshot) return
     setBusy(true)
@@ -448,12 +455,28 @@ function TaskPanel({ group, choose, source, format }: {
   </aside>
 }
 
-function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask, accountAvatar }: {
+function KingConversationActions({clear}:{clear():Promise<void>}) {
+  const [confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  async function submit() {
+    setBusy(true);setError('')
+    try { await clear();setConfirm(false) } catch(e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+  return <div className="dsh-bots dsh-bots-king-actions">
+    {!confirm ? <button type="button" onClick={()=>{setConfirm(true);setError('')}}>清空页面</button> : <>
+      <p>开启空白独聊，清除当前对话上下文。长期记忆、Bot 和群聊保留，旧对话归档供回查。</p>
+      <div className="dsh-bots-actions"><button type="button" disabled={busy} onClick={()=>setConfirm(false)}>取消清空</button><button type="button" disabled={busy} onClick={()=>void submit()}>{busy?'正在清空…':'确认清空页面'}</button></div>
+    </>}
+    {error&&<p role="alert" className="dsh-bots-error">{error}</p>}
+  </div>
+}
+
+function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask, clearPage, accountAvatar }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
   openSession: (id: string) => void
   chooseGroup(id: string, confirm: boolean): Promise<void>
   chooseTask(task: DiscussionTask, action: TaskAction): Promise<void>
+  clearPage(): Promise<void>
   accountAvatar: ReturnType<typeof avatarStore>
 }) {
   const group = useProjection('dshBots')
@@ -522,7 +545,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
     if (log && follow.current) log.scrollTop = log.scrollHeight
   }, [group?.rows])
   if (!group) return null
-  if (group.mode === 'king') return null
+  if (group.mode === 'king') return <KingConversationActions clear={clearPage} />
   return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
     {<TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
@@ -605,9 +628,9 @@ interface ClientContext {
     }
     pluginManager: { listBundles(): Promise<{ ok: true; value: { name: string; enabled: boolean }[] } | { ok: false; error: { message: string } }> }
     session: { modelCatalog(): Promise<{ ok: true; value: { groups: ModelGroup[] } } | { ok: false; error: { message: string } }> }; settings: {
-    describe(): Promise<{ ok: true; value: { writable: boolean; namespaces: { ns: string; value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; kingWorkspace?: {path:string;sessionId:string} }; revision: number }[] } } | { ok: false; error: { message: string } }>
-    mutate(ns: string, ops: { op: 'set'; path: string[]; value: unknown }[], revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
-    update(ns: string, patch: unknown, revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
+    describe(): Promise<{ ok: true; value: { writable: boolean; namespaces: { ns: string; value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; resetEpoch?:number; kingWorkspace?: {path:string;sessionId:string} }; revision: number }[] } } | { ok: false; error: { message: string } }>
+    mutate(ns: string, ops: { op: 'set'; path: string[]; value: unknown }[], revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; resetEpoch?:number; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
+    update(ns: string, patch: unknown, revision: number): Promise<{ ok: true; value: { value: { library?: unknown; kingMemory?: unknown; resetPending?:PendingReset|null; resetEpoch?:number; kingWorkspace?: {path:string;sessionId:string} }; revision: number } } | { ok: false; error: { message: string } }>
   }; commands: {
     execute(id: string, line: string, attachments: []): Promise<
       { ok: true; value?: { result: { kind: 'error' | 'success'; text?: string } } }
@@ -673,6 +696,8 @@ function mountClient(ctx: ClientContext) {
       const result=await ctx.remote.dshBots.reset({options,revision,confirmation:'RESET'})
       if(!result.ok)throw new Error(result.error.message)
       if(result.value.kind==='error')throw new Error(result.value.text)
+      const value=JSON.parse(result.value.text) as {sessionId?:string}
+      if(options.memory&&!options.sessions&&value.sessionId)ctx.uiWorkspace.openSession(value.sessionId)
     },
     async pickDirectory(){const result=await ctx.remote.directoryPicker.pick();if(!result.ok)throw new Error(result.error.message);return result.value},
     async setWorkspace(path,revision){
@@ -715,7 +740,7 @@ function mountClient(ctx: ClientContext) {
       if (!result.ok) throw new Error(result.error.message)
       const entry = result.value.namespaces.find(entry => entry.ns === 'dsh-bots')
       if (!entry) throw new Error('Bot 配置未加载，请检查宿主插件版本。')
-      return { resetPending:entry.value.resetPending, workspace: entry.value.kingWorkspace ?? undefined, library: validateLibrary(entry.value.library), kingMemory: validateMemory(entry.value.kingMemory), revision: entry.revision, writable: result.value.writable }
+      return { resetEpoch:entry.value.resetEpoch, resetPending:entry.value.resetPending, workspace: entry.value.kingWorkspace ?? undefined, library: validateLibrary(entry.value.library), kingMemory: validateMemory(entry.value.kingMemory), revision: entry.revision, writable: result.value.writable }
     },
     async save(library, revision) {
       const result = await ctx.remote.dshBots.saveCatalog({ library, revision })
@@ -759,6 +784,11 @@ function mountClient(ctx: ClientContext) {
       catalog,
       accountAvatar,
       openSession: (id: string) => ctx.uiWorkspace.openSession(id),
+      async clearPage() {
+        const snapshot = await catalog.load()
+        const result = await command<{sessionId:string}>(sessionId,{action:'clear-page',revision:snapshot.revision})
+        ctx.uiWorkspace.openSession(result.sessionId)
+      },
       async chooseTask(task: DiscussionTask, action: TaskAction) {
         const result = await ctx.remote.dshBots.manage(sessionId, { action: 'task-action', taskAction: action, taskId: task.id, revision: task.revision })
         if (!result.ok) throw new Error(result.error.message)

@@ -319,6 +319,12 @@ class Fixture extends LlmAdapter {
       } else if (input.includes('V040-MEMORY')) {
         if (!toolResults.length) toolCall = call('update_personal_memory', { actions: [{ action: 'remember', text: '用户希望先看结论', evidence: input }] })
         else text = 'V040-MEMORY-DONE ' + values.at(-1)
+      } else if (input.includes('V040-PAGE-CANARY')) {
+        text = 'V040-PAGE-READY'
+      } else if (input.includes('V040-CHECK-CLEAR')) {
+        text = !JSON.stringify(messages).includes('TEMP-PAGE-902') && systemText.includes('先看结论') ? 'V040-CLEAR-DONE' : 'V040-CLEAR-FAILED'
+      } else if (input.includes('V040-CHECK-RESET')) {
+        text = !JSON.stringify(messages).includes('TEMP-PAGE-902') && !systemText.includes('先看结论') ? 'V040-RESET-DONE' : 'V040-RESET-FAILED'
       } else if (input.includes('V040-RECALL')) {
         text = systemText.includes('先看结论') ? 'V040-RECALL-DONE' : 'V040-RECALL-FAILED'
       }

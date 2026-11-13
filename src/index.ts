@@ -33,7 +33,7 @@ import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName,
 import { projection } from './projection.ts'
 import type { Config, KingWorkspace } from './config.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from './group-creation.ts'
-import { continuesDiscussion, discussionInstructions, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, moderatorReplyContext, resolveDiscussionIntent, parseDiscussionStep, type DiscussionIntent } from './discussion.ts'
+import { groupSmallTalkReply, continuesDiscussion, discussionInstructions, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, moderatorReplyContext, resolveDiscussionIntent, parseDiscussionStep, type DiscussionIntent } from './discussion.ts'
 import { findTask, unresolvedOperations, verifiedOperation, modelTopic, newTask, operationMayChangeState, resultRowId, taskActionLabel, taskControl, taskDigest, taskRows, type DiscussionTask, type TaskAction, type TaskOperation } from './tasks.ts'
 import { acknowledgePeerTool, peerMessageId, peerReceipt, registerPeerTools, sameSend, sendPeerTool, type PeerChannel, type PeerMessage, type PeerTools } from './peer-messages.ts'
 import { groupRequestSchema, confirmedGroupRoute, deliveryRowId, groupProgress, groupTitle, isGroupReference, matchingGroups, parseExistingGroupRequest, queuedGroupTask, workspaceMatches, type ExistingGroup, type GroupDelivery, type GroupTaskUpdate, type ExistingGroupRequest } from './existing-groups.ts'
@@ -87,10 +87,11 @@ export async function apply(ctx: Context, config: Config) {
     read:()=>({state:{library:validateLibrary(config.library.get()),kingMemory:validateMemory(config.kingMemory.get()),kingWorkspace:config.kingWorkspace.get(),resetEpoch:config.resetEpoch.get(),sessionEpoch:config.sessionEpoch.get(),resetPending:config.resetPending.get()},revision:ctx.settings.describe().find(entry=>entry.ns==='dsh-bots')!.revision}),
     commit:async(patch,revision)=>{await ctx.settings.update('dsh-bots',patch,revision)},
     clearMemory:async(selected)=>{
-      if(!selected||!existsSync(selected.path))return
+      if(!selected||!existsSync(selected.path))throw new Error('记忆工作区不存在，无法清空。请恢复目录后重试。')
       const store=stores.get(selected.path)??new WorkspaceMemory(selected.path);stores.set(selected.path,store);store.reset()
     },
     forgetSessions:async(selected)=>{if(selected)await visibility.forget(selected.path)},
+    clearConversation: replaceKingConversation,
   }
   let recovery:Promise<void>|undefined,recoveryError=''
   // Settings only exposes a namespace once its Cordis fiber is active.
@@ -98,7 +99,8 @@ export async function apply(ctx: Context, config: Config) {
     if(fiber!==ctx.fiber||fiber.state!==2||recovery)return
     resetting=true
     recovery=(async()=>{
-      await finishReset(resetPort)
+      // Conversation replacement needs the optional session controller after startup.
+      if (!config.resetPending.get()?.replacementSessionId || ctx.get('sessionController')) await finishReset(resetPort)
       const library = validateLibrary(config.library.get())
       if (library.bots.some(bot => !bot.avatar)) {
         const entry = ctx.settings.describe().find(item => item.ns === 'dsh-bots')!
@@ -116,9 +118,14 @@ export async function apply(ctx: Context, config: Config) {
   ctx.inject(['sessionController'], (services) => {
     setImmediate(async () => {
       await recovery
-      const selected = config.kingWorkspace.get()
-      if (!selected?.sessionId || lifetime.signal.aborted) return
+      if (lifetime.signal.aborted) return
       try {
+        if (config.resetPending.get()) {
+          resetting = true
+          try { await finishReset(resetPort); recoveryError = '' } finally { resetting = false }
+        }
+        const selected = config.kingWorkspace.get()
+        if (!selected?.sessionId) return
         const loaded = await services.sessionController.resolveAgent(SessionId(selected.sessionId))
         if ('agent' in loaded) await recoverTaskResults(loaded.agent)
       } catch (error) {
@@ -182,7 +189,7 @@ export async function apply(ctx: Context, config: Config) {
         if (resetting || activeTurns.size || kingAgent && kingAgent.status !== 'idle') throw new Error('请先停止正在执行的 Bot 任务，再重置。')
         resetting=true
         try{await performReset(resetPort,request.options,request.revision);recoveryError=''}finally{resetting=false}
-        return {kind:'success',text:JSON.stringify({reset:true})}
+        return {kind:'success',text:JSON.stringify({reset:true,sessionId:config.kingWorkspace.get()?.sessionId})}
       }catch(error){return {kind:'error',text:error instanceof Error?error.message:String(error)}}
     },
     async manage(agent: Agent, input: unknown) {
@@ -231,6 +238,10 @@ export async function apply(ctx: Context, config: Config) {
           return { kind: 'success', text: '' }
         }
         if (groups.stateOf(agent.session).group?.mode !== 'king' || (agent.session.header.cwd ? realpathSync(agent.session.header.cwd) : '') !== workspace().path) throw new Error('请打开当前工作区的 KingBot 专属对话。')
+        if (request.action === 'clear-page') {
+          if (!authorizedKing(agent)) throw new Error('请打开当前 KingBot 独聊后再清空页面。')
+          return kingService.reset({ options: { members:false, memory:false, sessions:false, conversation:true }, revision:request.revision, confirmation:'RESET' })
+        }
         if (request.action === 'recover-results') {
           await recoverTaskResults(agent)
           return { kind: 'success', text: '' }
@@ -272,6 +283,42 @@ export async function apply(ctx: Context, config: Config) {
     const updated = { ...task, updatedAt: Date.now(), revision: task.revision + 1 }
     appendPluginRecord(agent.session, 'plugin:dsh-bots/task', { task: updated, active })
     return updated
+  }
+
+  async function replaceKingConversation(previous: KingWorkspace, replacementId: string) {
+    const controller = ctx.get('sessionController')
+    if (!controller) throw new Error('会话服务尚未就绪，请重试清空对话。')
+    const selected = workspace()
+    if (selected.path !== previous.path || ![previous.sessionId, replacementId].includes(selected.sessionId)) throw new Error('主 Bot 工作区已变更，请重试。')
+    const old = await resolveSessionAgent(SessionId(previous.sessionId))
+    if (old && old.status !== 'idle') throw new Error('请先停止主 Bot 当前任务。')
+    // The durable reset intent owns this exact replacement ID, including after restart.
+    if (selected.sessionId !== replacementId) {
+      await resetPort.commit({kingWorkspace:{...selected,sessionId:replacementId}},resetPort.read().revision)
+    }
+    const id = SessionId(replacementId)
+    let target = ctx.agents.get(id)
+    if (!target && await ctx.sessionPersistence.stat(id)) target = await resolveSessionAgent(id)
+    if (!target) {
+      const created = await controller.create({sessionId:id,cwd:previous.path,
+        ...(old?.session.header.agentPreset ? {agentPreset:old.session.header.agentPreset} : {})})
+      if (created.sessionId !== id) throw new Error('新独聊的会话编号不一致，请重试。')
+      target = ctx.agents.get(id)
+    }
+    if (!target || target.session.header.cwd !== previous.path) throw new Error('新独聊尚未完成初始化，请重试。')
+    if (groups.stateOf(target.session).group?.mode !== 'king') {
+      appendPluginRecord(target.session,'plugin:dsh-bots/king',{mode:'king'})
+      appendPluginRecord(target.session,'plugin:dsh-bots/epoch',{value:config.sessionEpoch.get()})
+      const model = old?.model.current()
+      if (model) target.model.select(model)
+      ensureCoordinator(target)
+      ctx.get('sessionTitle')?.rename(target.session,coordinatorName)
+    }
+    setupNativeKing(target)
+    await ctx.sessions.flush(target.session)
+    await checkpointBotSession(target)
+    await visibility.show(previous.path,replacementId)
+    await ctx.workspaceRegistry.archiveSession(SessionId(previous.sessionId),{stopActivity:true})
   }
 
   async function resolveSessionAgent(id: ReturnType<typeof SessionId>) {
@@ -588,6 +635,7 @@ export async function apply(ctx: Context, config: Config) {
     }
     if (!existingGroup) return next()
     if (existingGroup.mode === 'king' && agent.session.header.origin !== 'subagent') {
+      if (!authorizedKing(agent)) throw new Error('此独聊已归档，请从 Bots 页面打开当前 KingBot 对话。')
       setupNativeKing(agent)
       for (const message of messages) {
         if (message.source.kind === 'user') {
@@ -632,6 +680,14 @@ export async function apply(ctx: Context, config: Config) {
       const waitingForUser = group.tasks?.some(task => task.id === group.activeTaskId && task.status === 'paused' && task.question)
       if (original && !taskMessage && group.mode !== 'king') {
         const command = localDocumentReferences(original).text
+        const socialReply = !attachments.length && !localDocumentReferences(original).paths.length ? groupSmallTalkReply(original) : undefined
+        if (socialReply) {
+          preserve()
+          addRows(agent,[{id:`${message.id}:social`,author:'bot',botId:coordinatorId,status:'done',text:socialReply}])
+          if (interjection && interjections.get(agent) === interjection) interjections.delete(agent)
+          await ctx.sessions.flush(agent.session)
+          continue
+        }
         const typedControl = group.tasks?.length && taskControl(command)
         try { directlyAddressed = resolveTargets(command, availableMembers(group, validateLibrary(config.library.get())), workspaceEntry(agent)).length === 1 }
         catch { /* Dispatch reports invalid mentions. */ }
@@ -790,7 +846,7 @@ export async function apply(ctx: Context, config: Config) {
     const selected = config.kingWorkspace.get()
     const group = groups.stateOf(parent.session).group
     return !lifetime.signal.aborted && !resetting && !config.resetPending.get() && !ctx.workspaceRegistry.archivedSessionIds.includes(parent.id) &&
-      isKingWorkspace(parent.session.header.cwd, selected) && group?.mode === 'king' && sessionIsCurrent(group, config.sessionEpoch.get())
+      String(parent.id) === selected?.sessionId && isKingWorkspace(parent.session.header.cwd, selected) && group?.mode === 'king' && sessionIsCurrent(group, config.sessionEpoch.get())
   }
 
   function groupIsOccupied(agent: Agent, group: Group) {

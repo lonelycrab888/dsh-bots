@@ -92,3 +92,12 @@ export function moderatorReplyContext(text: string): string {
   const head = excerpt(text, 1800)
   return head === text ? text : `${excerpt(text, 900)}\n[中间内容省略，可回读原文]\n${text.slice(-1800)}`
 }
+
+/** Only complete social utterances qualify; greetings attached to tasks still route normally. */
+export function groupSmallTalkReply(text: string): string | undefined {
+  const value = coordinatorMessage(text).replace(/[。.!！?？～~\s]+$/u, '')
+  if (/^(?:你[们]?好|您[们]?好|大家好|各位好|嗨|哈[喽啰]|早[上安]?好?|上午好|中午好|下午好|晚上好|晚安|hi(?: everyone)?|hello(?: everyone)?|hey|good (?:morning|afternoon|evening))$/iu.test(value)) return '你好！我是 KingBot，有什么可以帮你？'
+  if (/^(?:谢谢(?:你|您|大家|各位)?|多谢(?:大家)?|辛苦(?:了|大家了)?|thanks(?: everyone)?|thank you)$/iu.test(value)) return '不客气，有需要随时告诉我。'
+  if (/^(?:在吗|在不在|有人吗|are you there)$/iu.test(value)) return '我在，请说。'
+  if (/^(?:你是谁|你叫什么(?:名字)?|who are you)$/iu.test(value)) return '我是 KingBot，可以回答问题，也可以按你的要求组织群成员讨论。'
+}

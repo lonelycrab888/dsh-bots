@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { moderatorReplyContext, followsCurrentDiscussion, resolveDiscussionIntent, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep } from '../src/discussion.ts'
+import { groupSmallTalkReply, moderatorReplyContext, followsCurrentDiscussion, resolveDiscussionIntent, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep } from '../src/discussion.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from '../src/group-creation.ts'
 import { fixtureLibrary } from './fixtures.ts'
 
@@ -113,4 +113,10 @@ test('long moderator summaries retain their final proposed next step', () => {
   assert.ok(context.endsWith(suggestion))
   assert.ok(context.length < text.length)
   assert.equal(moderatorReplyContext(suggestion), suggestion)
+})
+
+
+test('group greetings and thanks reply directly, while tasks and member mentions keep normal routing',()=>{
+ for(const text of ['你好','你好！','大家好','@KingBot 你好','谢谢','@主Bot 在吗？','Hi everyone!','你是谁']) assert.ok(groupSmallTalkReply(text),text)
+ for(const text of ['你好，请帮我写初稿','谢谢，继续讨论','@调研专家 你好','@调研专家 @审阅员 你好','可以，就按你说的做','请解释“你好”的意思','hello world 程序怎么写','早期项目分析','好的，继续','好','可以']) assert.equal(groupSmallTalkReply(text),undefined,text)
 })

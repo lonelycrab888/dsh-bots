@@ -17,6 +17,9 @@ Chat, write, analyze, search, and work with files in DeepSeek Harness. When a ta
 - **Discuss while verification is pending.** Reading and drafting remain available; new state-changing operations wait for verification. Fixed persistence of verified operations that have no target path.
 - **Clearer failure handling.** Intent-classifier failures preserve progress and report the technical failure. The extra group receipts/history panel has been removed from private chat.
 
+- **Memory reset and clear page.** Resetting memory archives the old private chat and starts a fresh context. The private chat's Clear page action starts a blank conversation while keeping long-term memory.
+- **Short social replies.** Greetings, thanks, and presence checks receive a short KingBot reply without creating a discussion task. Concrete requests and child Bot mentions keep their normal routing.
+
 ## How to use it
 
 1. **Choose the King workspace.** Open **Bots**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
@@ -128,6 +131,12 @@ For example: “Create two child Bots, one for architecture and one for quality 
 **The dedicated workspace is reserved for KingBot.** New ordinary conversations and group chats are rejected there. Existing group history remains readable, but those groups cannot continue running. Create group chats in other workspaces.
 
 The first setup imports legacy saved memories once. Switching the King workspace selects an independent memory store in the new folder; the old folder's data is preserved and is not merged automatically. Groups in every workspace use the currently selected King workspace's memory store.
+
+### Clear the private conversation
+
+Click **清空页面 → 确认清空页面** (Clear page → Confirm) above the KingBot composer. The current conversation is archived and a blank one opens in the same workspace with the same Agent preset and selected model. Earlier messages, tool results, and group receipts are not copied into its context. Long-term memory, Bot definitions, and groups are retained. The old conversation remains available in the host archive for reference and cannot run as the active KingBot conversation.
+
+To also erase long-term memory, select **主 Bot 记忆** (King memory) under **Bots → 重置 Bots 数据**. After resetting, the fresh KingBot conversation opens automatically. This prevents old messages from making the Agent appear to remember deleted memory. Stop active tasks before either action.
 
 ## Bot definitions and model settings
 
@@ -247,7 +256,7 @@ Open **Bots → KingBot → 重置 Bots 数据** (Reset Bots data), select the i
 | Option | Result |
 | --- | --- |
 | **Bots members** | Deletes all child Bots, including disabled ones, while retaining King, its model, and the group size limit. Old IDs remain retired; recreated names receive new IDs |
-| **King memory** | Clears active, archived, and pinned entries, their index and prior audit contents in the selected workspace, plus legacy migration entries. Memory switches remain unchanged. Select a workspace first |
+| **King memory** | Clears active, archived, and pinned entries, their index and prior audit contents in the selected workspace, plus legacy migration entries. Archives the old private chat and creates a fresh context. Memory switches remain unchanged. Select a workspace first |
 | **Old conversation associations** | Unbinds the dedicated workspace and King conversation, archives its sessions, and makes old groups read-only. Choosing a workspace again creates a fresh dedicated King conversation |
 
 Only selected items are reset. Resetting associations alone preserves memory; selecting the original folder reconnects that memory store. Bot execution contexts are renewed without injecting pre-reset history. Interrupted resets retain their pending intent and resume after restart; Bot execution stays paused until completion, and the reset panel also offers a retry.
@@ -260,6 +269,6 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, and intent-classifier failure. The deterministic model fixture verifies execution paths, not real-model response quality.
+`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-v0.4.0 passed type checking, 82 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+v0.4.0 passed type checking, 86 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
