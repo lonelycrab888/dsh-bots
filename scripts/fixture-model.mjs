@@ -414,6 +414,8 @@ export async function apply(ctx) {
       const king=visible.find(agent=>ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='king')
       const workspace=ctx.workspaceRegistry.list().find(item=>item.sessionIds.includes(king?.id))
       if(!king||!workspace||workspace.sessionIds[0]!==king.id)throw new Error('KingBot is not first in its workspace')
+      const allowed=new Set(visible.filter(agent=>['king','bot'].includes(ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode)).map(agent=>agent.id))
+      if(workspace.sessionIds.some(id=>!ctx.workspaceRegistry.archivedSessionIds.includes(id)&&!allowed.has(id)))throw new Error('Manual New Session left an extra workspace conversation')
       const pins=JSON.stringify(ctx.workspaceRegistry.pinnedSessionIds)
       await workspace.insertSessionBefore(king.id)
       for(let attempt=0;attempt<100&&workspace.sessionIds[0]!==king.id;attempt++)await delay(10)

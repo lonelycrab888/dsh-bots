@@ -1,3 +1,4 @@
+import { guardWorkspaceCreation, reservedWorkspaceNotice, type CreateConversationRequest } from './workspace-guard.ts'
 import { taskActionLabel, taskActions, taskDigest, type DiscussionTask, type TaskAction } from './tasks.ts'
 import { avatarImages, kingAvatar } from './avatar-images.ts'
 import type { BotAvatar } from './avatars.ts'
@@ -611,9 +612,9 @@ interface ClientContext {
     register(options: Record<string, unknown>, component: unknown): unknown
   }
   uiWorkspace: {openSession(id:string):void}
-  workspaces: {create(input:{path:string}):Promise<{workspaceId:string;path:string}>}
+  workspaces: {create(input:{path:string}):Promise<{workspaceId:string;path:string}>;list:{getSnapshot():{items:{workspaceId:string;path:string}[]};subscribe(callback:()=>void):()=>void}}
   sessions: {
-    create(input:{workspaceId:string}):Promise<string>
+    create(input?:CreateConversationRequest):Promise<string>
     binding(id: string): {
       session: {
         getSnapshot(): { blank: boolean }
@@ -783,13 +784,47 @@ function mountClient(ctx: ClientContext) {
         // workspace's direct children, leaving other workspaces and search alone.
         const row = `[data-row-key="session:${CSS.escape(id)}"]`
         const header = '[data-row-key^="workspace:"]'
-        const account = `div:has(> ${header}):has(> ${row})`
-        style.textContent = `${account}{display:flex;flex-direction:column}${account}>*{order:2}${account}>${header}{order:0}${account}>${row}{order:1}`
+        // Host hover cards may wrap rows in a span. Order that direct child too.
+        const headerItem = `:is(${header},span:has(> ${header}))`
+        const rowItem = `:is(${row},span:has(> ${row}))`
+        const account = `div:is(:has(> ${header}),:has(> span > ${header})):is(:has(> ${row}),:has(> span > ${row}))`
+        style.textContent = `${account}{display:flex;flex-direction:column}${account}>*{order:2}${account}>${headerItem}{order:0}${account}>${rowItem}{order:1}`
       } catch { /* Keep the last known identity during a reconnect. */ }
     }
     const stop = catalog.subscribe(() => {void refresh()})
     void refresh()
     return () => {disposed=true;stop();style.remove()}
+  })
+  ctx.effect(() => {
+    const stopCreation=guardWorkspaceCreation(ctx.sessions,async()=>(await catalog.load()).workspace?.path,
+      id=>ctx.workspaces.list.getSnapshot().items.find(item=>item.workspaceId===id)?.path)
+    let path:string|undefined,disposed=false,revision=0
+    const buttons=new Map<HTMLButtonElement,{title:string|null}>()
+    const restore=(button:HTMLButtonElement,prior:{title:string|null})=>{
+      button.disabled=false
+      if(prior.title===null)button.removeAttribute('title');else button.title=prior.title
+      buttons.delete(button)
+    }
+    const update=()=>{
+      const workspace=ctx.workspaces.list.getSnapshot().items.find(item=>item.path===path)
+      const selector=workspace?`[data-row-key="workspace:${CSS.escape(workspace.workspaceId)}"] button:not([aria-haspopup])`:undefined
+      for(const [button,prior]of buttons)if(!selector||!button.isConnected||!button.matches(selector))restore(button,prior)
+      if(!selector)return
+      for(const button of document.querySelectorAll<HTMLButtonElement>(selector)){
+        if(!buttons.has(button)&&!button.disabled)buttons.set(button,{title:button.getAttribute('title')})
+        if(buttons.has(button)){button.disabled=true;button.title=reservedWorkspaceNotice}
+      }
+    }
+    const refresh=async()=>{
+      const current=++revision
+      try{const snapshot=await catalog.load();if(!disposed&&revision===current){path=snapshot.workspace?.path;update()}}catch{/* Keep the current restriction during reconnect. */}
+    }
+    const stopSettings=catalog.subscribe(()=>{void refresh()})
+    const stopWorkspaces=ctx.workspaces.list.subscribe(update)
+    const observer=new MutationObserver(update)
+    observer.observe(document.body,{childList:true,subtree:true})
+    void refresh()
+    return()=>{disposed=true;stopCreation();stopSettings();stopWorkspaces();observer.disconnect();for(const [button,prior]of buttons)restore(button,prior)}
   })
   ctx.effect(() => ctx.inputTriggers.registerSource(groupMentionSource(
     sessionId => ctx.sessions.binding(sessionId)?.session.projections.faceOf('dshBots').getSnapshot(),

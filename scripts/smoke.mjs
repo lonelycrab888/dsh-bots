@@ -68,15 +68,28 @@ async function exerciseNativeBots() {
     const button=name=>page.getByRole('button',{name,exact:true})
     const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
     async function send(text,expected){const replies=page.getByText(expected,{exact:false});const before=await replies.count();await editor.fill(text);await button('发送消息').click();await replies.nth(before).waitFor({timeout:20000})}
+    const kingRowBefore=page.getByRole('treeitem',{name:/^KingBot/}).and(page.locator('[data-row-key^="session:"]')).first()
+    const account=kingRowBefore.locator('xpath=ancestor::div[.//*[@data-row-key and starts-with(@data-row-key,"workspace:")]][1]')
+    const before=await account.locator('[data-row-key^="session:"]').count()
+    const create=account.locator('[data-row-key^="workspace:"] button:not([aria-haspopup])')
+    await account.locator('[data-row-key^="workspace:"]').hover()
+    await create.waitFor({state:'visible'})
+    if(!await create.isDisabled())throw new Error('King workspace New Session must be disabled')
+    if(!await page.locator('[data-row-key^="workspace:"] button:not([aria-haspopup]):enabled').count())throw new Error('Other workspace creation was disabled')
+    await button('新建会话').last().click()
+    await page.getByText('KingBot 工作区不允许手动新建会话。',{exact:false}).last().waitFor()
+    if(await account.locator('[data-row-key^="session:"]').count()!==before)throw new Error('New Session created an orphan in the King workspace')
     await send('V041-WINDOWS 创建 Bot 后核对独聊','V041-WINDOWS-DONE')
     await send('V041-CREATE-SECOND 用版本助手创建共享记忆二群','V041-SECOND-DONE')
     await button('Roundtable').click();await button('版本助手').click();await button('与 版本助手 对话').click()
     await button('清空页面').waitFor()
     if(await page.locator('.dsh-bots-group-scroll').count())throw new Error('Child private chat hides native timeline')
-    const kingRow=page.getByRole('treeitem',{name:/^KingBot/}).first()
-    for(const row of await kingRow.locator('..').locator(':scope > [data-row-key^="session:"]').all()) {
+    const kingRow=page.getByRole('treeitem',{name:/^KingBot/}).and(page.locator('[data-row-key^="session:"]')).first()
+    for(const row of await kingRow.locator('xpath=ancestor::div[.//*[@data-row-key and starts-with(@data-row-key,"workspace:")]][1]').locator('[data-row-key^="session:"]').all()) {
       if(await row.isVisible() && (await row.boundingBox()).y < (await kingRow.boundingBox()).y)throw new Error('Blank child displaced KingBot')
     }
+    await button('新建会话').last().click()
+    await page.getByText('KingBot 工作区不允许手动新建会话。',{exact:false}).last().waitFor()
     await send('V041-CHAT-A 聊一下今天的天气 BOT-TEMP-846','V041-CHAT-DONE')
     await send('V041-READ 读取 native.txt','V041-READ-DONE')
     await send('V041-REMEMBER 请记住我希望使用蓝色图表 BOT-PRIVATE-741','V041-REMEMBER-DONE')
@@ -128,8 +141,8 @@ async function exerciseNativeBots() {
     await page.getByRole('treeitem',{name:/共享记忆二群/}).first().click()
     await page.locator('.dsh-bots-reasoning summary').last().click()
     await page.getByText('V041-THINK 模型返回的思考片段。后续片段已保留。',{exact:false}).last().waitFor()
-    const kingRow=page.getByRole('treeitem',{name:/^KingBot/}).first()
-    for(const row of await kingRow.locator('..').locator(':scope > [data-row-key^="session:"]').all()) {
+    const kingRow=page.getByRole('treeitem',{name:/^KingBot/}).and(page.locator('[data-row-key^="session:"]')).first()
+    for(const row of await kingRow.locator('xpath=ancestor::div[.//*[@data-row-key and starts-with(@data-row-key,"workspace:")]][1]').locator('[data-row-key^="session:"]').all()) {
       if(await row.isVisible() && (await row.boundingBox()).y < (await kingRow.boundingBox()).y)throw new Error('KingBot must be visually first in the workspace')
     }
     await page.screenshot({path:SCREENSHOT,fullPage:true})

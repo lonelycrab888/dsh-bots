@@ -12,6 +12,8 @@ Chat, write, analyze, search, and work with files in DeepSeek Harness. When a ta
 
 ## Features
 
+- **No manual chats in the King workspace.** Its New Session button is disabled; toolbar and shortcut requests are blocked before contacting the host. Open existing Bot chats through Roundtable, or create ordinary chats and groups in another workspace. Automatic Bot creation, Clear page and King memory reset remain available.
+
 - **KingBot stays first in its workspace.** Creating or clearing child chats, restarting, and manual reordering preserve KingBot at the top of its workspace session list.
 
 - **Native private chat for every Bot.** Creation automatically adds one standard Agent conversation in the King workspace. Existing Bots receive one after upgrading. Reopening reuses it; clearing archives the old window and replaces its context. KingBot retains all management and group tools.
@@ -272,6 +274,6 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
+`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks manual New Session blocking in the King workspace, automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-The current implementation passed type checking, 89 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+The current implementation passed type checking, 91 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
