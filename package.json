@@ -1,6 +1,6 @@
 {
   "name": "roundtable-bots",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "Named Bots and group conversations for DeepSeek Harness.",
   "type": "module",
   "main": "./lib/index.js",

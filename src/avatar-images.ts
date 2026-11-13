@@ -1,4 +1,5 @@
-import king from './avatars/Kingbot.png'
+import kingLight from './avatars/Kingbot.png'
+import kingDark from './avatars/Kingbot-white.png'
 import image0 from './avatars/fish-logo-anglerfish.png'
 import image1 from './avatars/fish-logo-betta.png'
 import image2 from './avatars/fish-logo-clownfish.png'
@@ -20,7 +21,7 @@ import image17 from './avatars/fish-logo-swordfish.png'
 import image18 from './avatars/fish-logo-turbot.png'
 import image19 from './avatars/fish-logo-whale-shark.png'
 
-export const kingAvatar = king
+export const kingAvatar = { light: kingLight, dark: kingDark }
 export const avatarImages = {
   'fish-logo-anglerfish': image0,
   'fish-logo-betta': image1,

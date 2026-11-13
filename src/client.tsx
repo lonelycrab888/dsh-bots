@@ -142,7 +142,11 @@ function WorkspaceMemoryPanel({catalog,snapshot,reload}:{catalog:CatalogAPI;snap
 }
 
 function Avatar({ id, name, avatar }: { id?: string; name: string; avatar?: BotAvatar }) {
-  const source = id === coordinatorId ? kingAvatar : avatar && avatarImages[avatar]
+  if (id === coordinatorId) return <span className="dsh-bots-avatar dsh-bots-king-avatar" aria-hidden="true">
+    <img className="dsh-bots-king-avatar-light" src={kingAvatar.light} alt="" />
+    <img className="dsh-bots-king-avatar-dark" src={kingAvatar.dark} alt="" />
+  </span>
+  const source = avatar && avatarImages[avatar]
   return <span className="dsh-bots-avatar" aria-hidden="true">
     {source ? <img src={source} alt="" /> : name[0]}
   </span>
@@ -539,7 +543,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
             const bot = row.author === 'bot' ? (row.botId === coordinatorId ? { id: coordinatorId, name: coordinatorName } : group.members.find(member => member.id === row.botId)) : undefined
             const name = row.author === 'user' ? '你' : bot?.name ?? 'Bot'
             return <article key={row.id} className="dsh-bots-message" data-author={row.author} data-row-id={row.id} tabIndex={-1}>
-              {row.author === 'user' && group.mode !== 'king' && userAvatar
+              {row.author === 'user' && userAvatar
                 ? <span className="dsh-bots-avatar dsh-bots-account-avatar" aria-hidden="true">
                     <img src={userAvatar} referrerPolicy="no-referrer" alt="" onError={() => accountAvatar.failed(userAvatar)} />
                   </span>

@@ -32,7 +32,7 @@
 
 ## 安装
 
-先在 Harness 的标准 API 配置中配置可用模型。插件直接使用宿主模型配置。需要本地安装包时，可下载 `roundtable-bots-0.3.11.tgz`。 [v0.3.11 发布页](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.11)
+先在 Harness 的标准 API 配置中配置可用模型。插件直接使用宿主模型配置。需要本地安装包时，可下载 `roundtable-bots-0.3.12.tgz`。 [v0.3.12 发布页](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.12)
 
 插件在已安装列表中显示为 `roundtable-bots`。从旧包 `dsh-bots` 升级时，请先退出宿主，在同一 profile 中切换包。
 
@@ -86,7 +86,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-在同一个终端中，将生成的安装包添加到对应 profile。使用已下载的发布包时，在文件所在目录执行 `package_file=roundtable-bots-0.3.11.tgz`，再运行对应的安装命令。
+在同一个终端中，将生成的安装包添加到对应 profile。使用已下载的发布包时，在文件所在目录执行 `package_file=roundtable-bots-0.3.12.tgz`，再运行对应的安装命令。
 
 ```sh
 # 桌面端（macOS 默认安装路径）
@@ -112,7 +112,7 @@ dsh plugin --profile web add "$PWD/$package_file"
 
 <!-- 截图预留 2：Bots 定义页。展示 KingBot、子 Bot 卡片、成员人数上限、模型及思考强度选项。建议路径：assets/bot-library.png。 -->
 
-「Bots 定义」显示头像目录，点击头像或名称进入设置。KingBot 单独占首行，子 Bot 每行居中。头像为透明底，浅色主题显示黑色、深色主题显示白色。「显示已停用 Bot」和「重置 Bots 数据」位于目录底部。每个子 Bot 都有自己的名称和职责。
+「Bots 定义」显示头像目录，点击头像或名称进入设置。KingBot 单独占首行，子 Bot 每行居中。头像为透明底，KingBot 在浅色主题使用深色鲸鱼，在深色主题使用白色鲸鱼，保留金色王冠。独聊和群聊都显示当前账户的用户头像。「显示已停用 Bot」和「重置 Bots 数据」位于目录底部。每个子 Bot 都有自己的名称和职责。
 
 | 设置 | 行为 |
 | --- | --- |

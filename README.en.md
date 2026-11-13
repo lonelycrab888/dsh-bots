@@ -32,7 +32,7 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `roundtable-bots-0.3.11.tgz`. [v0.3.11 release](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.11)
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `roundtable-bots-0.3.12.tgz`. [v0.3.12 release](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.12)
 
 The plugin appears as `roundtable-bots` in the installed list. To upgrade from the old `dsh-bots` package, quit Harness and switch packages in the same profile.
 
@@ -86,7 +86,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=roundtable-bots-0.3.11.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=roundtable-bots-0.3.12.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
@@ -112,7 +112,7 @@ The first setup imports legacy saved memories once. Switching the King workspace
 
 <!-- Screenshot placeholder 2: The Bots page showing KingBot, child Bot cards, the member limit, model selectors, and reasoning effort selectors. Suggested path: assets/bot-library.png. -->
 
-The Bot directory shows avatars and names; click either to open settings. KingBot occupies its own row, and each row of child Bots is centered. Avatars have transparent backgrounds, appearing black in light mode and white in dark mode. The disabled-Bot filter and reset action sit below the directory. Each child Bot has a name and responsibilities.
+The Bot directory shows avatars and names; click either to open settings. KingBot occupies its own row, and each row of child Bots is centered. Avatars have transparent backgrounds. KingBot uses a dark whale in light mode and a white whale in dark mode, with a gold crown in both. The current account avatar appears in direct chats and group chats. The disabled-Bot filter and reset action sit below the directory. Each child Bot has a name and responsibilities.
 
 | Setting | Behavior |
 | --- | --- |

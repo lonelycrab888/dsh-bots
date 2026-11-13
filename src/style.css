@@ -56,6 +56,10 @@ body[data-ds-dark-theme] .dsh-bots { --bots-avatar-inversion: 1; }
   object-fit: contain;
   filter: brightness(0) invert(var(--bots-avatar-inversion));
 }
+.dsh-bots-king-avatar img { filter: none; }
+.dsh-bots-king-avatar .dsh-bots-king-avatar-dark,
+body[data-ds-dark-theme] .dsh-bots-king-avatar .dsh-bots-king-avatar-light { display: none; }
+body[data-ds-dark-theme] .dsh-bots-king-avatar .dsh-bots-king-avatar-dark { display: block; }
 .dsh-bots-account-avatar img { border-radius: 50%; object-fit: cover; filter: none; }
 .dsh-bots-hint { margin: 8px 0 0; color: var(--bots-muted); }
 .dsh-bots-error { color: var(--dsw-alias-state-danger-primary, #b33838); }
