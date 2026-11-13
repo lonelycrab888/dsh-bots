@@ -2,6 +2,7 @@
   "name": "roundtable-bots",
   "version": "0.3.12",
   "description": "Named Bots and group conversations for DeepSeek Harness.",
+  "icon": "./assets/roundtable-bots-icon-v2.png",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -10,6 +11,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "assets/roundtable-bots-icon-v2.png",
     "lib",
     "cordis.patch.yml",
     "README.md",
