@@ -24,7 +24,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/lonelycrab888/roundtable-bots",
-            "commit": "7ba7d4e333b1f108106c89abc2397748c71b5d44"
+            "commit": "a9e994456d2a0af11f9e4aba3256878a72e03c66"
           },
           "engines": {
             "dsh": "0.2.2-rc.1 || 0.2.2-rc.2"
@@ -42,7 +42,8 @@
             "dsh": "0.2.2-rc.1 || 0.2.2-rc.2"
           }
         }
-      ]
+      ],
+      "icon": "https://raw.githubusercontent.com/lonelycrab888/roundtable-bots/594588ad7eb2ef835814a71138e6ac5b24d6f46e/assets/roundtable-bots-icon-v2.png"
     }
   ]
 }
