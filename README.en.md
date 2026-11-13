@@ -6,11 +6,11 @@
 
 Chat, write, analyze, search, and work with files in DeepSeek Harness. When a task needs collaboration, ask KingBot to create Bots, set up a group, and send messages. In groups, KingBot selects speakers by responsibility, follows up on existing work, and summarizes the results.
 
-**Current version: v0.4.0** · DeepSeek Harness `>=0.2.2-rc.1` (tested on rc.1 and rc.2) · Desktop / Web
+**Requires:** DeepSeek Harness `>=0.2.2-rc.1` (tested on rc.1 and rc.2) · Desktop / Web
 
-[Download package](https://github.com/lonelycrab888/roundtable-bots/releases/download/v0.4.0/roundtable-bots-0.4.0.tgz) · [Release notes](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.4.0) · [Installation](#installation) · [Memory](#how-memory-works)
+[Installation](#installation) · [Memory](#how-memory-works)
 
-## What's new in v0.4.0
+## Features
 
 - **Native Agent conversations.** KingBot private chat uses Harness streaming, tools, approvals, workspace instructions, and context management. Bot creation and group operations are additional tools.
 - **Better group continuation.** Accepting the moderator's suggestion includes its previous proposal. Verification acknowledgements select the active topic, and new drafting requests and corrections reach later assignments.
@@ -44,16 +44,16 @@ The group chat fills the available height. The timeline and topic summary follow
 
 Configure a working model in Harness's standard API settings first. The plugin uses the host configuration and does not need a separate API key.
 
-### Install the v0.4.0 release package
+### Install a local release package
 
-Download [`roundtable-bots-0.4.0.tgz`](https://github.com/lonelycrab888/roundtable-bots/releases/download/v0.4.0/roundtable-bots-0.4.0.tgz) from GitHub Releases. Quit Harness, open a terminal in the download directory, and run the command for your profile:
+For a local package, download `roundtable-bots-x.x.x.tgz` from the repository’s Releases. Replace `x.x.x` below with the version you downloaded. Quit Harness, open a terminal in the download directory, and run the command for your profile:
 
 ```sh
 # macOS Desktop (default application path)
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/roundtable-bots-0.4.0.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/roundtable-bots-x.x.x.tgz"
 
 # Web
-dsh plugin --profile web add "$PWD/roundtable-bots-0.4.0.tgz"
+dsh plugin --profile web add "$PWD/roundtable-bots-x.x.x.tgz"
 ```
 
 Reopen Harness and enable **roundtable-bots** in Plugins. Upgrading the same package preserves Bot definitions, conversations, and workspace memory. Desktop and Web use separate profiles and need separate installations.
@@ -112,7 +112,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=roundtable-bots-0.4.0.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=roundtable-bots-x.x.x.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
@@ -271,4 +271,4 @@ Automated coverage includes persistence and retrieval beyond 32 memories, reopen
 
 `npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-v0.4.0 passed type checking, 86 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+The current implementation passed type checking, 86 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.

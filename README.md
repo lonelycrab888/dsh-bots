@@ -6,11 +6,11 @@
 
 在 DeepSeek Harness 中与 KingBot 聊天、写作、分析、搜索和处理文件；需要协作时，让它创建 Bot、建立群聊并发送消息。群聊中，KingBot 按成员职责组织发言，结合已有结果继续讨论并汇总结论。
 
-**当前版本：v0.4.0** · DeepSeek Harness `>=0.2.2-rc.1`（已测试 rc.1、rc.2） · 桌面端 / Web
+**宿主要求：** DeepSeek Harness `>=0.2.2-rc.1`（已测试 rc.1、rc.2） · 桌面端 / Web
 
-[下载安装包](https://github.com/lonelycrab888/roundtable-bots/releases/download/v0.4.0/roundtable-bots-0.4.0.tgz) · [发布说明](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.4.0) · [安装](#安装) · [长期记忆](#记忆如何保存)
+[安装](#安装) · [长期记忆](#记忆如何保存)
 
-## v0.4.0 更新
+## 功能概览
 
 - **原生 Agent 独聊。** KingBot 使用 Harness 原生会话，支持流式回复、工具、审批、工作区指令和上下文管理；创建 Bot、建群及群聊操作通过额外工具完成。
 - **群聊继续更顺畅。** “按你说的做”带上上次主持建议；“已核对，继续”优先处理当前议题。新的初稿要求和用户更正会保留到后续派发。
@@ -44,16 +44,16 @@
 
 先在 Harness 的标准 API 配置中配置可用模型。插件使用宿主配置，无需单独填写 API Key。
 
-### 安装 v0.4.0 发布包
+### 安装本地发布包
 
-从 [GitHub Release](https://github.com/lonelycrab888/roundtable-bots/releases/download/v0.4.0/roundtable-bots-0.4.0.tgz) 下载 `roundtable-bots-0.4.0.tgz`。在下载目录打开终端，先退出正在使用的 Harness，再选择对应命令：
+需要本地安装包时，可从仓库的 Releases 下载 `roundtable-bots-x.x.x.tgz`。下文的 `x.x.x` 请替换为实际下载的版本号。在下载目录打开终端，先退出正在使用的 Harness，再选择对应命令：
 
 ```sh
 # macOS 桌面端（默认应用路径）
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/roundtable-bots-0.4.0.tgz"
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/roundtable-bots-x.x.x.tgz"
 
 # Web 端
-dsh plugin --profile web add "$PWD/roundtable-bots-0.4.0.tgz"
+dsh plugin --profile web add "$PWD/roundtable-bots-x.x.x.tgz"
 ```
 
 安装或升级后重新打开 Harness，在插件页启用 **roundtable-bots**。升级同名包会保留 Bot 定义、会话和工作区记忆。桌面端和 Web 使用各自的 profile，需分别安装。
@@ -112,7 +112,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-在同一个终端中，将生成的安装包添加到对应 profile。使用已下载的发布包时，在文件所在目录执行 `package_file=roundtable-bots-0.4.0.tgz`，再运行对应的安装命令。
+在同一个终端中，将生成的安装包添加到对应 profile。使用已下载的发布包时，在文件所在目录执行 `package_file=roundtable-bots-x.x.x.tgz`，再运行对应的安装命令。
 
 ```sh
 # 桌面端（macOS 默认安装路径）
@@ -124,7 +124,7 @@ dsh plugin --profile web add "$PWD/$package_file"
 
 ## 与 KingBot 单独对话
 
-选择工作区后，点击 **与 KingBot 对话** 打开或继续唯一的专属会话。v0.4.0 使用该会话自身的原生 Harness Agent，可自由聊天、写作、分析、搜索和处理文件。沿用原生流式回复、工具执行、审批、停止与上下文管理。回答直接使用自然语言，长度随任务需要调整。
+选择工作区后，点击 **与 KingBot 对话** 打开或继续唯一的专属会话。使用该会话自身的原生 Harness Agent，可自由聊天、写作、分析、搜索和处理文件。沿用原生流式回复、工具执行、审批、停止与上下文管理。回答直接使用自然语言，长度随任务需要调整。
 
 额外提供创建 Bot、创建群聊及向群聊发送消息的工具。普通聊天按当前需求回答，管理操作以工具回执为准。独聊只展示原生会话界面。旧独聊记录和群聊回执仍保留，并按上下文预算供 KingBot 查询和使用。
 
@@ -172,7 +172,7 @@ dsh plugin --profile web add "$PWD/$package_file"
 
 在群聊直接发送消息即可。KingBot 每次只选下一位发言者，根据已经出现的观点决定是继续追问、请另一位回应，还是收束。输入 `@架构师 @审阅员` 可以限定参与者。仅点名一位时，由这位成员直接回答。
 
-v0.4.0 支持用「可以，就按照你说的做」承接主持人的上一条建议。「已核对，继续」默认作用于当前议题，即使群内有多个旧议题。此前有操作结果待核对时仍可继续讨论、读取资料和撰写回复，新的修改操作在核对后恢复。意图识别调用失败会单独提示，并保留议题进度。
+支持用「可以，就按照你说的做」承接主持人的上一条建议。「已核对，继续」默认作用于当前议题，即使群内有多个旧议题。此前有操作结果待核对时仍可继续讨论、读取资料和撰写回复，新的修改操作在核对后恢复。意图识别调用失败会单独提示，并保留议题进度。
 
 讨论中可输入新指令，并用 Harness 的「插话发送」。在默认排队设置下，按 `⌘ Enter`（macOS）或 `Ctrl Enter`（Windows/Linux）插话，普通回车排队。插话会停止当前生成，KingBot 随后根据新指令和已完成的发言继续。也可直接发「等一下，先别让成员继续发言」之类的消息，KingBot 会暂停并询问下一步。若同时明确说明新任务，会按新任务继续。
 
@@ -275,4 +275,4 @@ dsh plugin --profile web remove roundtable-bots
 
 `npm run smoke`（别名 `npm run smoke:native`）使用 Chrome、Playwright CLI 和隔离的 Web profile，验证原生独聊、文件读取、搜索、创建 Bot、建群、发消息及重启后的记忆，也覆盖多个旧议题下的继续讨论、待核对操作、意图识别失败、清空页面、记忆重置后的上下文隔离及群聊问候。模型使用确定性替身，验证执行链路，不代表真实模型的回答质量。
 
-v0.4.0 已通过类型检查、86 项自动测试及上述集成验收。重置功能另有使用合成数据的隔离 profile 界面验收。
+已通过类型检查、86 项自动测试及上述集成验收。重置功能另有使用合成数据的隔离 profile 界面验收。
