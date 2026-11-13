@@ -253,3 +253,7 @@ button[aria-label="Bots"] { text-align: left; justify-content: flex-start; }
 
 .dsh-bots-king-actions { margin: 4px 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .dsh-bots-king-actions p { margin: 0; font-size: 13px; }
+
+.dsh-bots-reasoning { margin: 8px 0; border-left: 2px solid var(--border-color, #b6bdc7); padding-left: 12px; opacity: .85; }
+.dsh-bots-reasoning summary { cursor: pointer; font-size: .9em; }
+.dsh-bots-reasoning > div { max-height: 360px; overflow: auto; }

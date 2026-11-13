@@ -8,10 +8,12 @@ import { defaultLibrary, validateLibrary, type Library } from './bots.ts'
 // One volatile value commits the catalog and limit together without remounting
 // the plugin or interrupting active conversations.
 export interface KingWorkspace { path: string; sessionId: string; legacyImported?: boolean }
-export interface Config { memberLimits: RunLimits; resetEpoch:Volatile<number>; sessionEpoch:Volatile<number>; resetPending:Volatile<PendingReset|null>; kingWorkspace: Volatile<KingWorkspace | null>; library: Volatile<Library>; kingMemory: Volatile<KingMemory> }
+export interface BotConversation { sessionId:string; path:string; epoch:number; previousSessionId?:string }
+export interface Config { botConversations: Volatile<Record<string,BotConversation>>; memberLimits: RunLimits; resetEpoch:Volatile<number>; sessionEpoch:Volatile<number>; resetPending:Volatile<PendingReset|null>; kingWorkspace: Volatile<KingWorkspace | null>; library: Volatile<Library>; kingMemory: Volatile<KingMemory> }
 // Zod validates optional routes; Schema.object would materialize a missing route.
 const modelSchema = Schema.any()
 export const Config = Schema.object({
+  botConversations: Schema.any().default({}).volatile(),
   memberLimits: Schema.object({
     firstToken: Schema.number().min(1000).max(600000).default(defaultRunLimits.firstToken),
     modelQuiet: Schema.number().min(1000).max(600000).default(defaultRunLimits.modelQuiet),

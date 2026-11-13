@@ -25,7 +25,7 @@ export function groupMentionSource(
     showGroupTitle: false,
     async candidates({ sessionId }, { query, quoted, drilled, signal }) {
       const group = groupOf(sessionId)
-      if (!group || group.mode === 'king' || quoted || drilled || /[/\\]/u.test(query)) return []
+      if (!group || group.mode === 'king' || group.mode === 'bot' || quoted || drilled || /[/\\]/u.test(query)) return []
       const library = await loadLibrary()
       if (signal.aborted) return []
       const members = availableMembers(group, library)

@@ -26,12 +26,12 @@ const row = z.union([
   z.object({ at: z.number().optional(), id: z.string(), author: z.literal('user'), text: z.string(), continues: z.literal(true).optional(), control: z.literal(true).optional(), documents: z.array(document).optional() }),
   z.object({ at: z.number().optional(), id: z.string(), author: z.literal('notice'), text: z.string(), sessionId: z.string().optional(), tone: z.literal('info').optional(), taskLink: z.string().optional(), groupReference: z.literal(true).optional() }),
   z.object({
-    at: z.number().optional(), id: z.string(), author: z.literal('bot'), botId, text: z.string(),
+    at: z.number().optional(), id: z.string(), author: z.literal('bot'), botId, text: z.string(), reasoning: z.string().optional(),
     status: z.enum(['working', 'done', 'error', 'stopped', 'waiting']), execution: memberExecutionSchema.optional(), taskId: z.string().optional(), resultKind: z.enum(['partial', 'final']).optional(), sessionId: z.string().optional(),
     literal: z.literal(true).optional(), privateToKing: z.literal(true).optional(), groupReference: z.literal(true).optional(),
   }),
 ])
-const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king']).optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), tasks: z.array(taskSchema).optional(), activeTaskId: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
+const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king','bot']).optional(), botId: z.string().optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), tasks: z.array(taskSchema).optional(), activeTaskId: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
 const stateSchema = z.object({
   checkpoints: z.array(groupCheckpointSchema).optional(), inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish(),
   groupTaskUpdates: z.array(groupTaskUpdateSchema).optional(), peerMessages: z.array(peerMessageSchema).optional(), groupChoice: groupChoiceSchema.nullish(), groupDeliveries: z.array(groupDeliverySchema).optional(),
@@ -49,6 +49,7 @@ declare module '@deepseek-ai/dsh-session/types' {
     'plugin:dsh-bots/members': Group['members']
     'plugin:dsh-bots/rows': Group['rows']
     'plugin:dsh-bots/coordinator': Member
+    'plugin:dsh-bots/bot': { botId: string }
     'plugin:dsh-bots/king': { mode: 'king' }
     'plugin:dsh-bots/epoch': { value:number }
     'plugin:dsh-bots/group-proposal': { proposal: GroupProposal | null }
@@ -65,7 +66,7 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 17,
+  stateVersion: 18,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
@@ -81,6 +82,10 @@ export const projection: Definition & { wire: NonNullable<Definition["wire"]> } 
     if(record?.type==='plugin:dsh-bots/epoch' && state.group){
       const parsed=z.object({value:z.number().int().nonnegative()}).safeParse(record.data)
       return parsed.success?{...state,group:{...state.group,sessionEpoch:parsed.data.value}}:state
+    }
+    if (record?.type === 'plugin:dsh-bots/bot') {
+      const parsed = z.object({botId:z.string()}).safeParse(record.data)
+      return parsed.success ? {...state,group:{mode:'bot',botId:parsed.data.botId,members:[],rows:[]}} : state
     }
     if (record?.type === 'plugin:dsh-bots/king') return { ...state, group: { ...state.group, mode: 'king', members: [], rows: state.group?.rows ?? [] } }
     if (record?.type === 'plugin:dsh-bots/group-proposal' && state.group?.mode === 'king') {

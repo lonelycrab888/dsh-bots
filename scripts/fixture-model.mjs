@@ -330,22 +330,60 @@ class Fixture extends LlmAdapter {
       }
     }
     if (nativeKing && input.includes('V040-') && toolResults.some(result => result.isError)) { toolCall = undefined; text = 'V040-TOOL-FAILED ' + JSON.stringify(toolResults) }
+    const nativeBot = systemText.includes('这是你与用户的独立标准对话')
+    if ((nativeKing || nativeBot) && input.includes('V041-')) {
+      const call = (name,args) => ({name,arguments:JSON.stringify(args)})
+      const values = toolResults.flatMap(result => result.content.filter(block=>block.type==='text').map(block=>block.text))
+      text = 'V041-CHAT-DONE 普通对话'
+      if (input.includes('V041-WINDOWS')) {
+        if (!toolResults.length) toolCall = call('fixture_bot_windows',{})
+        else text = 'V041-WINDOWS-DONE ' + values.join('\n')
+      } else if (input.includes('V041-CREATE-SECOND')) {
+        if (!toolResults.length) toolCall = call('list_bots_and_workspaces',{})
+        else if (toolResults.length===1) {
+          const catalog=JSON.parse(values[0])
+          toolCall=call('create_group',{title:'共享记忆二群',topic:'跨群记忆验收',memberIds:[catalog.bots[0].id],workspaceId:catalog.workspaces[0].id,evidence:input})
+        } else text='V041-SECOND-DONE'
+      } else if (input.includes('V041-READ')) {
+        if (!toolResults.length) toolCall=call('read',{file_path:'native.txt'})
+        else text='V041-READ-DONE '+values.join('\n')
+      } else if (input.includes('V041-REMEMBER')) {
+        if (!toolResults.length) toolCall=call('update_personal_memory',{actions:[{action:'remember',text:'用户希望子 Bot 使用蓝色图表 BOT-PRIVATE-741',evidence:input}]})
+        else text='V041-REMEMBER-DONE '+values.join('\n')
+      } else if (input.includes('V041-CLEAR')) {
+        text=systemText.includes('BOT-PRIVATE-741')&&!JSON.stringify(messages).includes('BOT-TEMP-846')?'V041-CLEAR-DONE':'V041-CLEAR-FAILED'
+      } else if (input.includes('V041-ISOLATION')) {
+        text=!systemText.includes('BOT-PRIVATE-741')?'V041-ISOLATION-DONE':'V041-ISOLATION-FAILED'
+      } else if (input.includes('V041-SHARED')) {
+        if (!toolResults.length) toolCall=call('read_shared_group_memory',{query:'V041-GROUP'})
+        else text=values.join('\n').includes('V041-GROUP-DONE')?'V041-SHARED-DONE '+values.join('\n'):'V041-SHARED-FAILED '+values.join('\n')
+      }
+      if(toolResults.some(result=>result.isError)){toolCall=undefined;text='V041-TOOL-FAILED '+JSON.stringify(toolResults)}
+    }
+    if (latest?.includes('V041-GROUP')) text='V041-GROUP-DONE 共享事实：项目编号 PROJECT-741。'
     // The host also calls the adapter to generate titles for native conversations.
     if (prompt) {
-      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ at: Date.now(), sessionId, nativeKing, role, speaker, input, moderator, discussion, addressed, summarizing, intentCheck,
+      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ at: Date.now(), sessionId, nativeKing, nativeBot, role, speaker, input, moderator, discussion, addressed, summarizing, intentCheck,
         recoveryInstructions: systemText.includes('上一条决定被拒绝') && !systemText.includes('"kind":"close"'),
         seesPreviousTask: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('验收主持恢复'))),
         duty: systemText.match(/你的职责是：([^\n]+)/u)?.[1],
         seesGroupFact: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('GROUP-A-ONLY-496'))),
         seesWorkspaceInstructions: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('WORKSPACE-INSTRUCTIONS-756'))),
         calledTool: toolCall?.name, failure,
-        ...(/P038-TEST-0[23]|P039-|V040-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
+        ...(/P038-TEST-0[23]|P039-|V040-|V041-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
     }
     if (role !== 'KingBot' && latest?.includes('P039-STREAM')) {
       yield { type: 'block-start', index: 0, blockType: 'text' }
       for (let i = 0; i < 14; i++) { yield { type: 'text-delta', index: 0, text: `持续输出 ${i}；` }; await delay(10_000, undefined, { signal }) }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: '持续输出结束' } }
       yield { type: 'finish', reason: { kind: 'stop' } }; return
+    }
+    if (latest?.includes('V041-GROUP')) {
+      yield {type:'block-start',index:1,blockType:'reasoning'}
+      yield {type:'reasoning-delta',index:1,text:'V041-THINK 模型返回的思考片段。'}
+      await delay(600,undefined,{signal})
+      yield {type:'reasoning-delta',index:1,text:'后续片段已保留。'}
+      yield {type:'block-end',index:1,block:{type:'reasoning',text:'V041-THINK 模型返回的思考片段。后续片段已保留。'}}
     }
     await delay(duration ?? (slow ? 12_000 : 450), undefined, { signal })
     if (failure) throw new Error(failure)
@@ -368,6 +406,11 @@ export async function apply(ctx) {
   // Session record writers must come from the running host's Session implementation.
   const hostRequire = createRequire(realpathSync(process.argv[1]))
   const { SessionId, appendPluginRecord } = await import(hostRequire.resolve('@deepseek-ai/dsh-session'))
+  ctx.tools.register(defineTool({
+    name:'fixture_bot_windows',description:'Inspect test-only Bot root sessions.',parameters:{},
+    output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
+    async execute(){return JSON.stringify(ctx.agents.list().filter(agent=>!ctx.workspaceRegistry.archivedSessionIds.includes(agent.id)&&ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='bot').map(agent=>({sessionId:String(agent.id),botId:ctx.sessionProjections.stateOf(agent.session,'dshBots').group.botId})))}
+  }))
   ctx.tools.register(defineTool({
     name: 'fixture_seed_recovery', description: 'Isolated smoke fixture only.',
     parameters: { groupId: { type: 'string', required: true } },

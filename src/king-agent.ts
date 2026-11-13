@@ -47,11 +47,16 @@ export function registerKingAgentTools(ctx: Context, port: KingAgentTools) {
       parameters: { action: { type: 'string', enum: ['confirm', 'cancel'], required: true } }, output,
       async execute(args, { signal }) { return JSON.stringify(await port.confirmGroup(args.action as 'confirm' | 'cancel', signal)) },
     })),
-    ctx.tools.register(defineTool({
-      name: 'update_personal_memory', description: 'Save explicit long-term preferences or background, or forget an entry on request. Up to 3 actions. Evidence must quote the current user message. Consult the injected memory and respect its enabled/automatic-update settings.',
-      parameters: { actions: { type: 'array', required: true, items: { type: 'object', properties: { action: { type: 'string', enum: ['remember', 'forget'], required: true }, id: { type: 'string' }, text: { type: 'string' }, evidence: { type: 'string', required: true } }, additionalProperties: false } } }, output,
-      async execute(args, { signal }) { return JSON.stringify(await port.remember(args.actions, signal)) },
-    })),
+    registerPersonalMemoryTool(ctx, port.remember),
   ]
   return () => disposers.forEach(dispose => dispose())
+}
+
+export function registerPersonalMemoryTool(ctx: Context, remember: KingAgentTools['remember']) {
+  const output = { schema: { type: 'string' as const }, render: (_: unknown, text: string) => [{ type: 'text' as const, text }] }
+  return ctx.tools.register(defineTool({
+      name: 'update_personal_memory', description: 'Save explicit long-term preferences or background, or forget an entry on request. Up to 3 actions. Evidence must quote the current user message. Consult the injected memory and respect its enabled/automatic-update settings.',
+      parameters: { actions: { type: 'array', required: true, items: { type: 'object', properties: { action: { type: 'string', enum: ['remember', 'forget'], required: true }, id: { type: 'string' }, text: { type: 'string' }, evidence: { type: 'string', required: true } }, additionalProperties: false } } }, output,
+      async execute(args, { signal }) { return JSON.stringify(await remember(args.actions, signal)) },
+    }))
 }

@@ -15,6 +15,8 @@ test('King workspace rejects new root chats including symlink aliases, but permi
     assert.doesNotThrow(()=>assertRootCreation(selected,{cwd:path,sessionId:'king',source:'resume'}))
     assert.doesNotThrow(()=>assertRootCreation(selected,{cwd:path,sessionId:'historical',source:'resume'}))
     assert.doesNotThrow(()=>assertRootCreation(selected,{cwd:other,sessionId:'group',source:'startup'}))
+    assert.doesNotThrow(()=>assertRootCreation(selected,{cwd:path,sessionId:'bot-session',source:'startup'},['bot-session']))
+    assert.throws(()=>assertRootCreation(selected,{cwd:path,sessionId:'second-bot-session',source:'startup'},['bot-session']),/不能新建/)
     assert.equal(isKingWorkspace(alias,selected),true);assert.equal(isKingWorkspace(other,selected),false)
   } finally {rmSync(root,{recursive:true,force:true})}
 })

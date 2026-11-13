@@ -1,28 +1,31 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, realpathSync, chmodSync, writeFileSync, existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { applyMemoryActions, memoryEntrySchema, validateMemory, forgetBotIds, type KingMemory, type MemoryEntry } from './memory.ts'
 
 // Chinese bigrams supplement word tokens; no external embedding service is needed.
-export function searchTokens(text: string): string[] {
+export function searchTokens(text: string, limit = 256): string[] {
   const words = text.normalize('NFKC').toLowerCase().match(/[a-z0-9_-]{2,}|[\p{Script=Han}]+/gu) ?? []
-  return [...new Set(words.flatMap(word => /\p{Script=Han}/u.test(word)
-    ? Array.from(word).slice(0, -1).map((char, i) => char + Array.from(word)[i + 1]) : [word]))].slice(0, 256)
+  return [...new Set(words.flatMap(word => {
+    if (!/\p{Script=Han}/u.test(word)) return [word]
+    const characters = Array.from(word)
+    return characters.slice(0, -1).map((char, i) => char + characters[i + 1])
+  }))].slice(0, limit)
 }
 export interface MemoryPage { entries: MemoryEntry[]; total: number; active: number; revision: number; path: string }
 export class WorkspaceMemory {
   readonly db: DatabaseSync
   readonly path: string
   readonly workspace: string
-  constructor(workspace: string) {
+  constructor(workspace: string, botId?: string) {
     this.workspace = workspace
     if (!isAbsolute(workspace)) throw new Error('请选择绝对路径工作区。')
     const root = realpathSync(workspace)
     const directory = join(root, '.dsh-bots')
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     if (realpathSync(directory) !== directory) throw new Error('记忆目录不能是指向其他位置的符号链接。')
-    this.path = join(directory, 'king-memory.sqlite')
+    this.path = join(directory, botId ? 'bot-' + createHash('sha256').update(botId).digest('hex').slice(0, 24) + '-memory.sqlite' : 'king-memory.sqlite')
     if (existsSync(this.path) && realpathSync(this.path) !== this.path) throw new Error('记忆数据库不能是符号链接。')
     this.db = new DatabaseSync(this.path)
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;

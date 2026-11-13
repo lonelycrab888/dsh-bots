@@ -29,6 +29,7 @@ interface CatalogAPI {
   pickDirectory():Promise<string|null>
   setWorkspace(path:string,revision:number):Promise<void>
   openKing():Promise<void>
+  openBot(id:string):Promise<void>
   memory<T=unknown>(request:Record<string,unknown>):Promise<T>
   subscribe(refresh: () => void): () => void
   remove(id: string, snapshot: CatalogSnapshot): Promise<CatalogSnapshot>
@@ -108,7 +109,7 @@ function DirectoryManagement({snapshot,catalog,disabled,done,showArchived,setSho
     {pending&&<p role="alert">{pending.options.conversation?'上次清空页面尚未完成，请打开面板继续完成；长期记忆会保留。':'上次重置尚未完成，请打开重置面板继续完成原先选择的项目。'}</p>}
     {open&&<div id={resetId} className="dsh-bots-editor dsh-bots-reset">
       <strong>选择要重置的项目</strong>
-      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 KingBot 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空当前工作区全部长期记忆，并归档当前独聊、开启空白上下文；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
+      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 KingBot 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空主 Bot 的长期记忆，并归档其当前独聊、开启空白上下文；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
       <p>只重置勾选项目。此操作不能在插件中撤销；原聊天历史、已导出的文件和其他工作区的记忆文件不会删除。重置后使用新的 Bot 执行上下文。</p>
       <label>输入 RESET 确认<input aria-label="重置确认文字" value={confirmation} disabled={busy} onChange={e=>setConfirmation(e.target.value)} autoComplete="off"/></label>
       <div className="dsh-bots-actions"><button type="button" disabled={busy} onClick={()=>setOpen(false)}>取消重置</button><button type="button" disabled={disabled||busy||confirmation!=='RESET'||!Object.values(options).some(Boolean)} onClick={()=>void submit()}>{busy?'正在重置…':pending?'继续未完成的重置':'确认重置所选数据'}</button></div>
@@ -117,7 +118,8 @@ function DirectoryManagement({snapshot,catalog,disabled,done,showArchived,setSho
   </section>
 }
 
-function WorkspaceMemoryPanel({catalog,snapshot,reload}:{catalog:CatalogAPI;snapshot:CatalogSnapshot;reload():Promise<void>}) {
+function WorkspaceMemoryPanel({catalog,snapshot,reload,botId}:{catalog:CatalogAPI;snapshot:CatalogSnapshot;reload():Promise<void>;botId?:string}) {
+  const memory = <T,>(request:Record<string,unknown>) => catalog.memory<T>({...request,botId})
   const [page,setPage]=useState<MemoryPage>()
   const [query,setQuery]=useState(''), [search,setSearch]=useState('')
   const [archived,setArchived]=useState(false),[offset,setOffset]=useState(0)
@@ -126,21 +128,21 @@ function WorkspaceMemoryPanel({catalog,snapshot,reload}:{catalog:CatalogAPI;snap
   const requestVersion=useRef(0)
   async function load(){
     const version=++requestVersion.current;setBusy(true);setError('')
-    try{const result=await catalog.memory<MemoryPage>({action:'list',query:search,archived,offset});if(version===requestVersion.current)setPage(result)}
+    try{const result=await memory<MemoryPage>({action:'list',query:search,archived,offset});if(version===requestVersion.current)setPage(result)}
     catch(e){if(version===requestVersion.current)setError(messageOf(e))}
     finally{if(version===requestVersion.current)setBusy(false)}
   }
   useEffect(()=>{setOffset(0);setDraft(undefined);setStatus('');setPage(undefined)},[snapshot.resetEpoch])
-  useEffect(()=>{void load();return()=>{requestVersion.current++}},[search,archived,offset,snapshot.workspace?.path,snapshot.revision])
-  async function edit(entry:Record<string,unknown>){if(!page)return;setBusy(true);setError('');try{await catalog.memory({action:'edit',entry,revision:page.revision});setDraft(undefined);await load()}catch(e){setError(messageOf(e));setBusy(false)}}
-  async function settings(change:Record<string,boolean>){setBusy(true);setError('');try{await catalog.memory({action:'settings',...change});await reload()}catch(e){setError(messageOf(e))}finally{setBusy(false)}}
+  useEffect(()=>{void load();return()=>{requestVersion.current++}},[search,archived,offset,snapshot.workspace?.path,snapshot.revision,botId])
+  async function edit(entry:Record<string,unknown>){if(!page)return;setBusy(true);setError('');try{await memory({action:'edit',entry,revision:page.revision});setDraft(undefined);await load()}catch(e){setError(messageOf(e));setBusy(false)}}
+  async function settings(change:Record<string,boolean>){setBusy(true);setError('');try{await memory({action:'settings',...change});await reload()}catch(e){setError(messageOf(e))}finally{setBusy(false)}}
   return <div className="dsh-bots-memory">
     <p>已保存 {page?.active ?? '…'} 条有效记忆，无固定条数上限。每次只检索相关条目，固定记忆优先进入上下文。</p>
     <label><input type="checkbox" checked={snapshot.kingMemory.enabled} disabled={busy} onChange={e=>void settings({enabled:e.target.checked})}/>启用长期记忆</label>
-    <label><input type="checkbox" checked={snapshot.kingMemory.autoRemember} disabled={busy} onChange={e=>void settings({autoRemember:e.target.checked})}/>从主 Bot 对话与群聊自动更新记忆</label>
+    <label><input type="checkbox" checked={snapshot.kingMemory.autoRemember} disabled={busy} onChange={e=>void settings({autoRemember:e.target.checked})}/>从独聊自动保存长期偏好（所有 Bot 的共同开关）</label>
     <form onSubmit={e=>{e.preventDefault();setOffset(0);setSearch(query)}} className="dsh-bots-toolbar"><input aria-label="搜索工作区记忆" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索记忆内容"/><button disabled={busy}>搜索记忆</button></form>
     <label><input type="checkbox" checked={archived} onChange={e=>{setArchived(e.target.checked);setOffset(0)}}/>查看已移出记忆</label>
-    <div className="dsh-bots-toolbar"><button disabled={busy} onClick={()=>setDraft({text:''})}>添加长期记忆</button><button disabled={busy} onClick={()=>void load()}>刷新记忆</button><button disabled={busy} onClick={()=>void catalog.memory<{path:string}>({action:'export'}).then(result=>setStatus(`已导出：${result.path}`)).catch(e=>setError(messageOf(e)))}>导出记忆</button></div>
+    <div className="dsh-bots-toolbar"><button disabled={busy} onClick={()=>setDraft({text:''})}>添加长期记忆</button><button disabled={busy} onClick={()=>void load()}>刷新记忆</button><button disabled={busy} onClick={()=>void memory<{path:string}>({action:'export'}).then(result=>setStatus(`已导出：${result.path}`)).catch(e=>setError(messageOf(e)))}>导出记忆</button></div>
     {draft && <form className="dsh-bots-editor" onSubmit={e=>{e.preventDefault();void edit(draft)}}><label>记忆内容<textarea aria-label="长期记忆内容" value={draft.text} maxLength={600} required onChange={e=>setDraft({...draft,text:e.target.value})}/></label><div className="dsh-bots-actions"><button type="button" onClick={()=>setDraft(undefined)}>取消记忆编辑</button><button disabled={busy||!draft.text.trim()}>保存长期记忆</button></div></form>}
     {error && <p role="alert" className="dsh-bots-error">{error}</p>}{status && <p role="status">{status}</p>}
     <div className="dsh-bots-memory-list">{page?.entries.map(entry=><article key={entry.id}><p>{entry.text}</p><small>{entry.pinned?'固定 · ':''}{entry.source==='manual'?'手动':'来自对话'} · {new Date(entry.updatedAt).toLocaleString()}</small><div className="dsh-bots-actions"><button disabled={busy} onClick={()=>setDraft({id:entry.id,text:entry.text})}>编辑记忆</button><button disabled={busy} onClick={()=>void edit({id:entry.id,pinned:!entry.pinned})}>{entry.pinned?'取消固定':'固定记忆'}</button><button disabled={busy} onClick={()=>void edit({id:entry.id,archived:!entry.archived})}>{entry.archived?'恢复记忆':'移出记忆'}</button></div></article>)}</div>
@@ -282,9 +284,11 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
       </section>}
       {selected && !edit && [selected].map(bot => <article className="dsh-bots-editor" key={bot.id}>
           <div className="dsh-bots-name"><Avatar id={bot.id} name={bot.name} avatar={bot.avatar} /><h2>{bot.name}{bot.archived ? '（已停用）' : ''}</h2></div>
+          {snapshot.workspace && <details><summary>管理独聊记忆</summary><WorkspaceMemoryPanel key={bot.id} catalog={catalog} snapshot={snapshot} reload={load} botId={bot.id} /></details>}
           <p className="dsh-bots-duty" tabIndex={0}>{bot.duty}</p><code>@{bot.name}</code>
           <ModelPicker value={bot.model} groups={models} disabled={busy || !!edit || !snapshot.writable} onChange={model => void save({ ...snapshot.library, bots: snapshot.library.bots.map(item => item.id === bot.id ? { ...item, model } : item) }, '模型已保存，下次执行生效。')} />
           <div className="dsh-bots-actions">
+            <button type="button" className="dsh-bots-primary" disabled={busy || bot.archived || !snapshot.workspace} onClick={() => {setBusy(true);setError('');void catalog.openBot(bot.id).catch(error=>setError(messageOf(error))).finally(()=>setBusy(false))}}>与 {bot.name} 对话</button>
             <button type="button" aria-label={`编辑 ${bot.name}`} disabled={busy || !!edit || !snapshot.writable} onClick={() => { setEdit({ ...bot }); setError(''); setStatus('') }}>编辑</button>
             <button type="button" aria-label={`${bot.archived ? '恢复' : '停用'} ${bot.name}`} disabled={busy || !!edit || !snapshot.writable}
               onClick={() => void save({ ...snapshot.library, bots: snapshot.library.bots.map(item => item.id === bot.id ? { ...item, archived: !item.archived } : item) }, bot.archived ? 'Bot 已恢复。' : 'Bot 已停用，可勾选“显示已停用 Bot”恢复。已有群聊保持不变。')}>{bot.archived ? '恢复' : '停用'}</button>
@@ -318,7 +322,7 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
     } catch (error) { setError(messageOf(error)) }
     finally { setSaving(false) }
   }
-  if (group?.mode === 'king') return null
+  if (group?.mode === 'king' || group?.mode === 'bot') return null
   return <div className="dsh-bots dsh-bots-mode">
     <div className="dsh-bots-segment" role="group" aria-label="对话模式">
       <button type="button" aria-pressed={!group && !editing} disabled={saving} onClick={() => { setEditing(false); setError(''); if (group) void save([]) }}>默认</button>
@@ -501,7 +505,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   }, [catalog])
   const room = useRef<HTMLElement>(null)
   useLayoutEffect(() => {
-    if (!group || group.mode === 'king' || !room.current) return
+    if (!group || group.mode === 'king' || group.mode === 'bot' || !room.current) return
     const scroll = room.current.closest('[data-conversation-scroll]')
     if (!scroll) return
     const marked: HTMLElement[] = []
@@ -545,7 +549,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
     if (log && follow.current) log.scrollTop = log.scrollHeight
   }, [group?.rows])
   if (!group) return null
-  if (group.mode === 'king') return <KingConversationActions clear={clearPage} />
+  if (group.mode === 'king' || group.mode === 'bot') return <KingConversationActions clear={clearPage} />
   return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
     {<TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
@@ -574,6 +578,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
                 : <Avatar id={bot?.id} name={name} avatar={library?.bots.find(item => item.id === bot?.id)?.avatar ?? (bot && 'avatar' in bot ? bot.avatar : undefined)} />}
               <div className="dsh-bots-bubble">
                 <strong>{row.author === 'bot' && bot ? '@' + name : name}</strong>
+                {row.author === 'bot' && row.reasoning && <details className="dsh-bots-reasoning"><summary>{row.status === 'working' ? '思考中…' : '查看思考过程'}</summary><MarkdownReply text={row.reasoning} format={formatMentions} /></details>}
                 {row.author === 'bot' && row.status === 'done' && !row.literal
                   ? <MarkdownReply text={row.text} format={formatMentions} />
                   : <p className={row.author === 'bot' && row.status === 'error' ? 'dsh-bots-error' : undefined}>
@@ -713,6 +718,12 @@ function mountClient(ctx: ClientContext) {
       if(!snapshot.workspace)throw new Error('请先选择主 Bot 工作区。')
       ctx.uiWorkspace.openSession(snapshot.workspace.sessionId)
       void command(snapshot.workspace.sessionId, { action: 'recover-results' }).catch(() => {})
+    },
+    async openBot(botId){
+      const snapshot=await catalog.load()
+      if(!snapshot.workspace)throw new Error('请先选择主 Bot 工作区。')
+      const result=await command<{sessionId:string}>(snapshot.workspace.sessionId,{action:'open-bot',botId})
+      ctx.uiWorkspace.openSession(result.sessionId)
     },
     async memory<T>(request:Record<string,unknown>):Promise<T>{
       const snapshot=await catalog.load()

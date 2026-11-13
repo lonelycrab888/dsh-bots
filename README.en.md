@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-**A general-purpose KingBot conversation, with custom Bots and group chats.**
+**Standard Agent conversations for every Bot, shared group memory, and collaboration led by KingBot.**
 
 Chat, write, analyze, search, and work with files in DeepSeek Harness. When a task needs collaboration, ask KingBot to create Bots, set up a group, and send messages. In groups, KingBot selects speakers by responsibility, follows up on existing work, and summarizes the results.
 
@@ -11,6 +11,10 @@ Chat, write, analyze, search, and work with files in DeepSeek Harness. When a ta
 [Installation](#installation) · [Memory](#how-memory-works)
 
 ## Features
+
+- **Native private chat for every Bot.** Creation automatically adds one standard Agent conversation in the King workspace. Existing Bots receive one after upgrading. Reopening reuses it; clearing archives the old window and replaces its context. KingBot retains all management and group tools.
+- **Three memory layers.** Each Bot has its own personal memory, access to shared group history, and the current native window context.
+- **Visible model reasoning in groups.** Expand the reasoning returned by the model while it streams, or revisit it after restart. Models that do not return reasoning show no reasoning panel.
 
 - **Native Agent conversations.** KingBot private chat uses Harness streaming, tools, approvals, workspace instructions, and context management. Bot creation and group operations are additional tools.
 - **Better group continuation.** Accepting the moderator's suggestion includes its previous proposal. Verification acknowledgements select the active topic, and new drafting requests and corrections reach later assignments.
@@ -209,26 +213,23 @@ Open the group from its Harness workspace or session search. If it has a task, K
 
 ## How memory works
 
-| Data | Where it is saved | Across group chats? |
+Each Bot uses three memory layers in a new conversation:
+
+| Layer | Storage | Behavior |
 | --- | --- | --- |
-| Bot definitions and model choices | Plugin configuration in the current profile | Groups in the same profile can reuse definitions |
-| Group history and Bot child sessions | Their own group conversation | Child Bots do not automatically read other groups' histories |
-| KingBot's personal long-term memory | SQLite database in the selected King workspace | Shared by the dedicated King conversation and groups in other workspaces |
+| Its own private-chat long-term memory | `.dsh-bots/king-memory.sqlite` for KingBot; a separate `bot-<id>-memory.sqlite` for each child in the King workspace | Preferences and lasting background survive window replacement; each Bot retrieves its own entries |
+| Shared memory from all groups | `.dsh-bots/group-memory.sqlite` in each group's workspace | Every Bot can retrieve group messages across registered workspaces, with workspace, group and message provenance |
+| Current window context | Native Harness session journal | Standard Agent management of current messages, attachments and tool results |
 
-Original group messages and attachment references remain in the host journal. Interrupting execution does not clear that history. Each Bot restores the current task, latest user guidance, source-linked extracts and recent originals for its own group, and can retrieve exact older messages or attachments when needed. Long histories use token-budgeted extraction and retrieval. Extracts are lossy, not full-text model memory; precise values and corrections retain their sources. New tasks do not automatically inherit old constraints. Group working memory is isolated from other groups and is not promoted to KingBot’s personal long-term memory.
+Personal memory updates require evidence from the current user message. Private conversations are not automatically copied into shared group memory. A Bot can also recall its own personal memory while participating in a group. Current user instructions take precedence over historical information.
 
-Long-term memory is stored at `.dsh-bots/king-memory.sqlite` in the selected workspace and survives restarts. It stores explicit requests, stable preferences, and lasting background information. **It does not automatically memorize the full text of every past group chat.** When memory and automatic updates are enabled, memories are extracted from the current user message and retain the supporting original text. Child Bot output is not automatically treated as a fact about the user. Only KingBot reads shared memory directly, though it may include relevant information in an assignment.
+Public group messages are saved automatically, and existing group journals are indexed after upgrading. Full originals remain on disk; models retrieve bounded excerpts. Use `messageId` with `nextOffset` for the rest of a long message, and `nextPage` for more records. Directed private messages and model reasoning are excluded from the shared index. Incomplete replies retain their status. Group task progress and execution contexts remain independent, allowing concurrent work in multiple groups.
 
-Open **Bots → KingBot → 管理工作区记忆** (Manage workspace memory) to search, browse pages, add, edit, pin, archive, restore, and export entries. You can disable memory entirely or turn off automatic updates separately. With memory and automatic updates enabled, you can say in the dedicated KingBot conversation:
+Manage entries in **Bots → KingBot → 管理工作区记忆** or **Bots → a child Bot → 管理独聊记忆**. Both support search, editing, pinning, archiving, restoring and export. Personal-memory and automatic-update switches apply to all Bots' private memories; shared group history remains available. Ask any Bot to remember a lasting preference or forget an existing entry in its private conversation.
 
-```text
-Remember: when proposing a solution, give the conclusion first and then the implementation steps.
-Forget my earlier preference about response formatting.
-```
+Personal memory has no fixed entry-count limit. Each entry supports **600 characters**, with up to three automatic updates per turn. SQLite/FTS5 uses keywords and Chinese bigrams rather than vector search. Only selected excerpts enter model context. See [memory design and references](MEMORY-DESIGN.md).
 
-There is no fixed total-entry limit and no limit tied to the number of group chats. Each entry can contain up to **600 characters**, with up to 3 automatic updates per turn. Local SQLite/FTS5 storage retrieves a bounded selection of pinned, matching, and recent entries for each request. Search uses keywords and Chinese bigrams rather than vector embeddings. See [memory design and references](MEMORY-DESIGN.md).
-
-Removing an entry stops future shared-memory injection but does not delete the original conversation. That group may still know the information from its own context. Disabling memory stops injection while retaining saved entries.
+**Clear page** archives the current window and creates a blank context, retaining personal and shared group memories. Each Bot has one current private conversation; older windows are history only. **Reset King memory** clears KingBot's personal entries and replaces its window, retaining child memories and shared group history. Removing a memory does not delete original chat messages.
 
 ## Current scope
 
@@ -269,6 +270,6 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. The deterministic model fixture verifies execution paths, not real-model response quality.
+`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-The current implementation passed type checking, 86 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+The current implementation passed type checking, 89 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.

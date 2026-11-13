@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 
 export const kingRequest = z.object({
-  action:z.enum(['configure','bind','list','edit','export','settings','confirm-group','cancel-group','task-action','recover-results','clear-page']), path:z.string().optional(),
+  action:z.enum(['configure','bind','list','edit','export','settings','confirm-group','cancel-group','task-action','recover-results','clear-page','open-bot']), path:z.string().optional(), botId:z.string().optional(),
   revision:z.number().int().optional(), query:z.string().optional(), archived:z.boolean().optional(),
   offset:z.number().int().nonnegative().optional(), entry:z.unknown().optional(),
   enabled:z.boolean().optional(), autoRemember:z.boolean().optional(),

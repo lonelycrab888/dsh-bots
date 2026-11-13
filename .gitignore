@@ -4,3 +4,4 @@ node_modules/
 *-source.tar.gz
 .env
 .env.*
+output/playwright/

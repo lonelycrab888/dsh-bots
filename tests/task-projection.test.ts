@@ -24,3 +24,14 @@ test('task checkpoints can replay independently of unrelated group rows', () => 
   assert.equal(rebuilt.group?.tasks?.[0].origin, 'king')
   assert.equal(taskDigest(rebuilt.group!.tasks![0], rebuilt.group!.rows).completed[0].text, '50 可行')
 })
+
+test('native Bot identity and model reasoning survive projection replay and wire transport', () => {
+  const state = projection.apply({inherited:0,group:null}, pluginEvent('plugin:dsh-bots/bot',{botId:'architect'},0))
+  assert.equal(state.group?.mode,'bot')
+  assert.equal(state.group?.botId,'architect')
+  const group = {inherited:0,group:{members:[],rows:[]}}
+  const saved = projection.apply(group,pluginEvent('plugin:dsh-bots/rows',[{id:'r',author:'bot',botId:'architect',status:'done',text:'Answer',reasoning:'Model reasoning'}],1))
+  const row = saved.group?.rows[0]
+  assert.ok(row?.author==='bot')
+  assert.equal(row.reasoning,'Model reasoning')
+})

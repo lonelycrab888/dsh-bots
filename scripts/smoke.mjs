@@ -63,6 +63,86 @@ async function requests() {
   return (await readFile(requestsPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
 }
 
+async function exerciseNativeBots() {
+  browser('run-code', (async page => {
+    const button=name=>page.getByRole('button',{name,exact:true})
+    const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
+    async function send(text,expected){const replies=page.getByText(expected,{exact:false});const before=await replies.count();await editor.fill(text);await button('发送消息').click();await replies.nth(before).waitFor({timeout:20000})}
+    await send('V041-WINDOWS 创建 Bot 后核对独聊','V041-WINDOWS-DONE')
+    await send('V041-CREATE-SECOND 用版本助手创建共享记忆二群','V041-SECOND-DONE')
+    await button('Bots 定义').click();await button('版本助手').click();await button('与 版本助手 对话').click()
+    await button('清空页面').waitFor()
+    if(await page.locator('.dsh-bots-group-scroll').count())throw new Error('Child private chat hides native timeline')
+    await send('V041-CHAT-A 聊一下今天的天气 BOT-TEMP-846','V041-CHAT-DONE')
+    await send('V041-READ 读取 native.txt','V041-READ-DONE')
+    await send('V041-REMEMBER 请记住我希望使用蓝色图表 BOT-PRIVATE-741','V041-REMEMBER-DONE')
+    await button('Bots 定义').click();await button('版本助手').click();await button('与 版本助手 对话').click()
+    await page.getByText('V041-CHAT-A 聊一下今天的天气 BOT-TEMP-846',{exact:true}).waitFor()
+    await send('V041-CHAT-B 再聊聊','V041-CHAT-DONE')
+    await button('清空页面').click();await button('确认清空页面').click()
+    await page.getByText('V041-CHAT-A 聊一下今天的天气 BOT-TEMP-846',{exact:true}).waitFor({state:'hidden'}).catch(async error=>{throw new Error(error.message+' UI: '+await page.locator('.dsh-bots-king-actions').innerText())})
+    await send('V041-CLEAR 检查独聊记忆','V041-CLEAR-DONE')
+    await button('Bots 定义').click();await button('KingBot').click();await button('与 KingBot 对话').click()
+    await send('V041-ISOLATION 检查主 Bot 没有子 Bot 的私人记忆','V041-ISOLATION-DONE')
+    await send('V041-WINDOWS 清空后核对独聊','V041-WINDOWS-DONE')
+  }).toString())
+  browser('run-code',(async page=>{
+    const button=name=>page.getByRole('button',{name,exact:true})
+    const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
+    for(const title of ['原生验收群','共享记忆二群']) {
+      await button('搜索会话').click();await page.getByPlaceholder(/搜索会话名称/).fill(title)
+      await page.getByRole('treeitem',{name:new RegExp(title)}).first().click()
+      await editor.fill('@版本助手 V041-GROUP 请记录项目编号');await button('发送消息').click()
+      const log=page.getByRole('log',{name:'群聊时间线'})
+      await log.getByText('V041-GROUP-DONE 共享事实：项目编号 PROJECT-741。',{exact:false}).last().waitFor()
+      await log.locator('.dsh-bots-reasoning summary').last().click()
+      await log.getByText('V041-THINK 模型返回的思考片段。后续片段已保留。',{exact:false}).last().waitFor()
+    }
+    await button('Bots 定义').click();await button('版本助手').click();await button('与 版本助手 对话').click()
+    await editor.fill('V041-SHARED 读取所有群聊记忆');await button('发送消息').click()
+    await page.getByText('V041-SHARED-DONE',{exact:false}).last().waitFor()
+    await button('Bots 定义').click();await button('KingBot').click();await button('与 KingBot 对话').click()
+    await editor.fill('V041-SHARED 读取所有群聊记忆');await button('发送消息').click()
+    await page.getByText('V041-SHARED-DONE',{exact:false}).last().waitFor()
+  }).toString())
+  await stopHost();browser('goto',await startHost())
+  await mkdir(new URL('../output/playwright/',import.meta.url),{recursive:true})
+  browser('run-code',(async page=>{
+    const button=name=>page.getByRole('button',{name,exact:true})
+    const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
+    await button('Bots 定义').click();await button('版本助手').click();await button('与 版本助手 对话').click()
+    await page.getByText('V041-CLEAR-DONE',{exact:false}).last().waitFor()
+    const previous=await page.getByText('V041-CLEAR-DONE',{exact:false}).count()
+    await editor.fill('V041-CLEAR 重启后核对独聊');await button('发送消息').click()
+    await page.getByText('V041-CLEAR-DONE',{exact:false}).nth(previous).waitFor()
+    const previousShared=await page.getByText('V041-SHARED-DONE',{exact:false}).count()
+    await editor.fill('V041-SHARED 重启后检索');await button('发送消息').click()
+    await page.getByText('V041-SHARED-DONE',{exact:false}).nth(previousShared).waitFor()
+    await button('搜索会话').click();await page.getByPlaceholder(/搜索会话名称/).fill('共享记忆二群')
+    await page.getByRole('treeitem',{name:/共享记忆二群/}).first().click()
+    await page.locator('.dsh-bots-reasoning summary').last().click()
+    await page.getByText('V041-THINK 模型返回的思考片段。后续片段已保留。',{exact:false}).last().waitFor()
+    await page.screenshot({path:SCREENSHOT,fullPage:true})
+  }).toString().replace('SCREENSHOT',JSON.stringify(decodeURIComponent(new URL('../output/playwright/v0.4.1-group-reasoning.png',import.meta.url).pathname))))
+  const calls=(await requests()).filter(call=>call.input.includes('V041-'))
+  const a=calls.find(call=>call.input.startsWith('V041-CHAT-A')),b=calls.find(call=>call.input.startsWith('V041-CHAT-B'))
+  assert.ok(a?.nativeBot && b?.nativeBot);assert.equal(a.sessionId,b.sessionId)
+  const cleared=calls.find(call=>call.input==='V041-CLEAR 检查独聊记忆'),restart=calls.find(call=>call.input==='V041-CLEAR 重启后核对独聊')
+  assert.notEqual(cleared.sessionId,a.sessionId);assert.equal(cleared.sessionId,restart.sessionId)
+  assert.ok(a.tools.includes('read')&&a.tools.includes('write')&&a.tools.includes('web_search'))
+  assert.ok(!a.tools.includes('create_bots'),'Child private chats do not inherit King management tools')
+  const toolText=call=>call.toolResults?.flatMap(content=>content.filter(block=>block.type==='text').map(block=>block.text)).join('\n')
+  const windows=calls.filter(call=>call.input.startsWith('V041-WINDOWS')&&call.toolResults?.length)
+  assert.equal(windows.length,2)
+  for(const call of windows){const sessions=JSON.parse(toolText(call));assert.equal(sessions.length,1);assert.equal(new Set(sessions.map(item=>item.botId)).size,1)}
+  for(const native of ['nativeKing','nativeBot']) {
+    const shared=calls.find(call=>call[native]&&call.input.startsWith('V041-SHARED')&&call.toolResults?.length)
+    const data=JSON.parse(toolText(shared))
+    assert.equal(new Set(data.flatMap(item=>item.messages.filter(row=>row.text.includes('V041-GROUP-DONE')).map(row=>row.groupId))).size,2)
+  }
+  console.log('Verified automatic unique Bot windows, native tools, isolated personal memory, clear-page/restart persistence, cross-group shared recall for King and child, and persisted model reasoning.')
+}
+
 async function exerciseExistingGroups() {
   await stopHost()
   browser('goto', await startHost())
@@ -480,6 +560,7 @@ try {
     assert.equal(reset.sessionId,restart.sessionId)
     console.log('Verified clear-page context isolation with memory retained, memory reset with a fresh conversation, restart persistence and group small talk without delegation.')
     console.log('Verified native King conversation, root session continuity, native file tool, Bot creation, group creation, message delivery and restart memory.')
+    await exerciseNativeBots()
   } else {
   browser('run-code', (async page => {
     const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE
