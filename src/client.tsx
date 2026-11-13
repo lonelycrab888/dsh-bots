@@ -5,8 +5,9 @@ import type { BotAvatar } from './avatars.ts'
 import type { ResetOptions, PendingReset } from './reset.ts'
 import { KING_REMOTE } from './king-remote.ts'
 import { watchActivation } from './lifecycle.ts'
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import Markdown from 'react-markdown'
+import { createContext, useContext, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import Markdown, { defaultUrlTransform } from 'react-markdown'
+import { localFileLink, type GroupFileTarget, type DownloadGroupFile } from './file-links.ts'
 import remarkGfm from 'remark-gfm'
 import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
@@ -15,7 +16,7 @@ import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
 import { botMentionFormatter, groupMentionSource, type GroupMentionSource } from './mention.ts'
 import { avatarStore, followAccountAvatar, preloadAvatar, type AccountFrame } from './account-avatar.ts'
 
-export const inject = ['slots', 'sessions', 'inputTriggers', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager', 'workspaces', 'uiWorkspace', 'remote.directoryPicker']
+export const inject = ['slots', 'sessions', 'inputTriggers', 'remote', 'remote.commands', 'remote.settings', 'remote.session', 'remote.pluginManager', 'workspaces', 'uiWorkspace', 'remote.directoryPicker', 'remote.workspaceFiles', 'fileActions']
 
 type ProjectionHook = (key: 'dshBots') => Group | null | undefined
 type Choose = (ids: BotId[]) => Promise<void>
@@ -351,12 +352,36 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
   </div>
 }
 
+const FileDownloadContext = createContext<DownloadGroupFile | undefined>(undefined)
+
+function FileDownload({ target, children }: { target: GroupFileTarget; children: React.ReactNode }) {
+  const download = useContext(FileDownloadContext)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+  async function save() {
+    if (!download || pending) return
+    setPending(true); setError('')
+    try { await download(target) }
+    catch (error) { setError('下载失败：' + messageOf(error)) }
+    finally { setPending(false) }
+  }
+  return <span className="dsh-bots-file">
+    <button type="button" className="dsh-bots-file-download" disabled={pending || !download}
+      title={'path' in target ? target.path : target.name} onClick={() => void save()}>
+      {children}（{pending ? '下载中…' : '下载'}）
+    </button>
+    {error && <span role="alert" className="dsh-bots-error">{error}</span>}
+  </span>
+}
+
 const markdownPlugins = [remarkGfm]
 const markdownComponents = {
   img: ({ alt }: { alt?: string }) => alt ? <span>{alt}</span> : null,
-  a: ({ href, children }: React.ComponentProps<'a'>) => (
-    <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-  ),
+  a: ({ href, children }: React.ComponentProps<'a'>) => {
+    const path = localFileLink(href)
+    if (path) return <FileDownload target={{ path }}>{children}</FileDownload>
+    return <a href={defaultUrlTransform(href ?? '')} target="_blank" rel="noopener noreferrer">{children}</a>
+  },
 }
 type FormatMentions = (text: string) => string
 type MarkdownNode = { type: string; value?: string; children?: MarkdownNode[] }
@@ -383,7 +408,7 @@ const MarkdownReply = memo(function MarkdownReply({ text, format }: { text: stri
   const body = /^\s*```(?:md|markdown)[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(text)?.[1] ?? text
   const formatted = /(?:^|\n)[ \t]{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|[>|]|```|~~~)|(?:\*\*|__|~~|`)[^\n]+|\[[^\]]+\]\(|[*_][^*_\n]+[*_]/.test(body)
   if (!formatted) return <p>{format?.(body) ?? body}</p>
-  return <div className="dsh-bots-markdown"><Markdown skipHtml remarkPlugins={format ? [...markdownPlugins, remarkBotMentions(format)] : markdownPlugins} components={markdownComponents}>{body}</Markdown></div>
+  return <div className="dsh-bots-markdown"><Markdown skipHtml urlTransform={url => localFileLink(url) ? url : defaultUrlTransform(url)} remarkPlugins={format ? [...markdownPlugins, remarkBotMentions(format)] : markdownPlugins} components={markdownComponents}>{body}</Markdown></div>
 })
 
 function GroupConfirmation({ confirmation, choose }: {
@@ -475,9 +500,10 @@ function KingConversationActions({clear}:{clear():Promise<void>}) {
   </div>
 }
 
-function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask, clearPage, accountAvatar }: {
+function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask, clearPage, accountAvatar, downloadFile }: {
   catalog: CatalogAPI
   useProjection: ProjectionHook
+  downloadFile: DownloadGroupFile
   openSession: (id: string) => void
   chooseGroup(id: string, confirm: boolean): Promise<void>
   chooseTask(task: DiscussionTask, action: TaskAction): Promise<void>
@@ -551,7 +577,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   }, [group?.rows])
   if (!group) return null
   if (group.mode === 'king' || group.mode === 'bot') return <KingConversationActions clear={clearPage} />
-  return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
+  return <FileDownloadContext.Provider value={downloadFile}><section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
     {<TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
       row?.scrollIntoView({ block: 'nearest' })
@@ -588,7 +614,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
                 {row.author === 'bot' && row.sessionId && <button type="button" onClick={() => openSession(row.sessionId!)}>打开群聊</button>}
                 {row.author === 'user' && !!row.documents?.length && (
                   <ul className="dsh-bots-attachments" aria-label="文档附件">
-                    {row.documents.map(({ attachment }, index) => <li key={index}>{attachment.name}</li>)}
+                    {row.documents.map(({ attachment }, index) => <li key={index}><FileDownload target={{rowId:row.id,index,name:attachment.name}}>{attachment.name}</FileDownload></li>)}
                   </ul>
                 )}
               </div>
@@ -596,7 +622,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
           })}
           {group.confirmation && <GroupConfirmation key={group.confirmation.id} confirmation={group.confirmation} choose={chooseGroup} />}
         </div>}
-  </section>
+  </section></FileDownloadContext.Provider>
 }
 
 interface AccountClient { version: string; locale: string; timezoneOffsetSeconds: number }
@@ -611,6 +637,7 @@ interface ClientContext {
     inject(name: string, register: () => unknown): void
     register(options: Record<string, unknown>, component: unknown): unknown
   }
+  fileActions: {save(source:{url:string;name:string;read(signal:AbortSignal):Promise<Blob>},mode:'download'):Promise<unknown>}
   uiWorkspace: {openSession(id:string):void}
   workspaces: {create(input:{path:string}):Promise<{workspaceId:string;path:string}>;list:{getSnapshot():{items:{workspaceId:string;path:string}[]};subscribe(callback:()=>void):()=>void}}
   sessions: {
@@ -624,7 +651,8 @@ interface ClientContext {
   }
   remote: {
     $mount(contribution:unknown):Promise<()=>Promise<void>>
-    dshBots:{saveCatalog(request:Record<string,unknown>):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
+    workspaceFiles:{readBytes(sessionId:string,path:string,options:Record<string,never>,signal:AbortSignal):Promise<{ok:true;value:{data:Uint8Array}}|{ok:false;error:{message:string}}>}
+    dshBots:{downloadDocument(sessionId:string,rowId:string,index:number):Promise<{ok:true;value:{name:string;data:string}}|{ok:false;error:{message:string}}>;saveCatalog(request:Record<string,unknown>):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
     directoryPicker:{pick():Promise<{ok:true;value:string|null}|{ok:false;error:{message:string}}>}
     $on(event: string, callback: () => void): () => void
     $stream(options: { name: string; open(signal: AbortSignal): unknown; ended(): Error; carrierFailed(): void }): AsyncIterable<AccountFrame> & { dispose(): unknown }
@@ -853,6 +881,20 @@ function mountClient(ctx: ClientContext) {
     inject: (sessionId: string) => ({
       catalog,
       accountAvatar,
+      async downloadFile(target: GroupFileTarget) {
+        const name = 'path' in target ? target.path.split(/[/\\]/).pop() || 'download' : target.name
+        await ctx.fileActions.save({url:'',name,read:async signal => {
+          if ('path' in target) {
+            const result = await ctx.remote.workspaceFiles.readBytes(sessionId,target.path,{},signal)
+            if (!result.ok) throw new Error(result.error.message)
+            return new Blob([new Uint8Array(result.value.data)])
+          }
+          const result = await ctx.remote.dshBots.downloadDocument(sessionId,target.rowId,target.index)
+          signal.throwIfAborted()
+          if (!result.ok) throw new Error(result.error.message)
+          return new Blob([Uint8Array.from(atob(result.value.data),char=>char.charCodeAt(0))])
+        }},'download')
+      },
       openSession: (id: string) => ctx.uiWorkspace.openSession(id),
       async clearPage() {
         const snapshot = await catalog.load()

@@ -7,6 +7,7 @@ import { modelForBot, availableMembers, redactDeletedBotIds, freshCoordinator, u
 import { bindTypertRemote } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
 import { KING_REMOTE, catalogInput, kingRequest } from './king-remote.ts'
+import { readGroupDocument } from './group-files.ts'
 import { SharedGroupMemory } from './shared-memory.ts'
 import { WorkspaceMemory } from './workspace-memory.ts'
 import { realpathSync, existsSync, statSync } from 'node:fs'
@@ -188,6 +189,12 @@ export async function apply(ctx: Context, config: Config) {
 
   const kingService = {
     ctx,
+    async downloadDocument(agent: Agent, rowId: string, index: number) {
+      const attachments = ctx.get('attachments')
+      if (!attachments) throw new Error('宿主附件服务不可用。')
+      return readGroupDocument(groups.stateOf(agent.session).group, rowId, index,
+        ref => attachments.readFileStream(ref, lifetime.signal))
+    },
     async saveCatalog(input: unknown) {
       try {
         await recovery

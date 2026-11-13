@@ -166,6 +166,53 @@ async function exerciseNativeBots() {
   console.log('Verified automatic unique Bot windows, native tools, isolated personal memory, clear-page/restart persistence, cross-group shared recall for King and child, and persisted model reasoning.')
 }
 
+async function exerciseGroupDownloads(workspace, uploadedPath) {
+  const bytes=Buffer.from([0,255,128,10,42,0,13])
+  await writeFile(join(workspace,'交付 报告.bin'),bytes)
+  const downloads=join(dir,'downloads')
+  await mkdir(downloads,{recursive:true})
+  browser('run-code',(async page=>{
+    const button=name=>page.getByRole('button',{name,exact:true})
+    const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
+    await editor.fill('@版本助手 V042-FILES 请提供文件下载 @"'+UPLOAD+'"')
+    await button('发送消息').click()
+    const log=page.getByRole('log',{name:'群聊时间线'})
+    await log.getByText('V042-FILES-DONE',{exact:false}).last().waitFor()
+    for(const [index,label] of ['相对文件','绝对文件','file链接','sandbox链接','outside workspace.md'].entries()) {
+      const downloading=page.waitForEvent('download')
+      await log.getByRole('button',{name:label+'（下载）',exact:true}).last().click()
+      const download=await downloading
+      if(download.suggestedFilename()!==(index===4?'outside workspace.md':'交付 报告.bin'))throw new Error('Download filename changed: '+download.suggestedFilename())
+      await download.saveAs(DOWNLOADS+'/'+index+'.bin')
+    }
+    await log.getByRole('button',{name:'缺失文件（下载）',exact:true}).click()
+    await log.getByRole('alert').filter({hasText:'下载失败'}).waitFor()
+    if(await log.locator('a[href^="javascript:"]').count())throw new Error('Unsafe link enabled')
+    if(await log.getByRole('link',{name:'网页',exact:true}).getAttribute('href')!=='https://example.com/report')throw new Error('Web link was changed')
+  }).toString().replace('UPLOAD',JSON.stringify(uploadedPath)).replace('DOWNLOADS',JSON.stringify(downloads)))
+  for(let i=0;i<4;i++)assert.deepEqual(await readFile(join(downloads,i+'.bin')),bytes)
+  const uploaded=await readFile(uploadedPath)
+  assert.deepEqual(await readFile(join(downloads,'4.bin')),uploaded)
+  await rm(uploadedPath)
+  await stopHost();browser('goto',await startHost())
+  const count=(await requests()).length
+  browser('run-code',(async page=>{
+    const button=name=>page.getByRole('button',{name,exact:true})
+    await button('搜索会话').click();await page.getByPlaceholder(/搜索会话名称/).fill('共享记忆二群')
+    await page.getByRole('treeitem',{name:/共享记忆二群/}).first().click()
+    const log=page.getByRole('log',{name:'群聊时间线'})
+    for(const [index,label] of ['相对文件','outside workspace.md'].entries()) {
+      const downloading=page.waitForEvent('download')
+      await log.getByRole('button',{name:label+'（下载）',exact:true}).last().click()
+      await (await downloading).saveAs(DOWNLOADS+'/restart-'+index+'.bin')
+    }
+  }).toString().replace('DOWNLOADS',JSON.stringify(downloads)))
+  assert.deepEqual(await readFile(join(downloads,'restart-0.bin')),bytes)
+  assert.deepEqual(await readFile(join(downloads,'restart-1.bin')),uploaded)
+  assert.equal((await requests()).length,count,'Downloading must not invoke a model')
+  console.log('Verified group file downloads: relative/absolute/file/sandbox links, original binary bytes and Chinese filenames, uploaded copies after original deletion and restart, missing-file feedback and safe web links.')
+}
+
 async function exerciseExistingGroups() {
   await stopHost()
   browser('goto', await startHost())
@@ -584,6 +631,7 @@ try {
     console.log('Verified clear-page context isolation with memory retained, memory reset with a fresh conversation, restart persistence and group small talk without delegation.')
     console.log('Verified native King conversation, root session continuity, native file tool, Bot creation, group creation, message delivery and restart memory.')
     await exerciseNativeBots()
+    await exerciseGroupDownloads(defaultWorkspace, documentPath)
   } else {
   browser('run-code', (async page => {
     const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE

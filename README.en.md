@@ -12,6 +12,8 @@ Chat, write, analyze, search, and work with files in DeepSeek Harness. When a ta
 
 ## Features
 
+- **Download files in group chats.** Local file links support workspace-relative and absolute paths, `file://`, `sandbox:`, and names with spaces or Chinese characters. Uploaded attachments are downloadable and survive restarts. Linked files must still exist on the host and follow host access and size limits; stored uploads are limited to 20 MB. Web links continue to open normally.
+
 - **No manual chats in the King workspace.** Its New Session button is disabled; toolbar and shortcut requests are blocked before contacting the host. Open existing Bot chats through Roundtable, or create ordinary chats and groups in another workspace. Automatic Bot creation, Clear page and King memory reset remain available.
 
 - **KingBot stays first in its workspace.** Creating or clearing child chats, restarting, and manual reordering preserve KingBot at the top of its workspace session list.
@@ -101,10 +103,18 @@ The local repository includes compiled files in `lib/`; include them when publis
 
 ### Migrate from the old dsh-bots package
 
+**If your installed plugin is older than v0.4.0, we recommend uninstalling it and reinstalling roundtable-bots.** Back up the configuration and retain the original workspace and memory files. After reinstalling, start a new standard dsh conversation and send:
+
+> 我的dsh-bots版本更新了，原插件改名为roundtable-bots，请帮我把之前的记录、记忆文件等适配回新roundtable-bots。
+
+This asks dsh to adapt previous records and memory files from the renamed `dsh-bots` plugin to `roundtable-bots`.
+
+**Note: This does not affect existing Bots' memories, but we strongly recommend recreating child Bots.** Do not delete the workspace's `.dsh-bots` directory or clear memories during reinstallation and migration. The steps below provide a manual configuration reference.
+
 The plugin appears as `roundtable-bots` in the installed list. To upgrade from the old `dsh-bots` package, quit Harness and switch packages in the same profile.
 
 1. Back up the profile's `cordis.patch.yml`. The default desktop profile stores it at `~/.dsh/profiles/desktop/cordis.patch.yml`.
-2. Install `roundtable-bots` with the CLI commands below, then run `dsh plugin --profile desktop remove dsh-bots`. For Desktop, use the bundled CLI path shown below. For Web, use the `web` profile.
+2. Run `dsh plugin --profile desktop remove dsh-bots` to uninstall the old package, then install `roundtable-bots` with the CLI commands above. For Desktop, use the bundled CLI path shown above. For Web, use the `web` profile.
 3. Find the `id: dsh-bots` entry in the backup and current configuration. Change its `name: dsh-bots` to `name: roundtable-bots` and keep the original `id`, `config`, and other fields. If the entry has no `name`, leave it as is.
 4. Reopen Harness. The new package uses the existing workspace memory and the conversation history in the same profile.
 
@@ -274,6 +284,6 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks manual New Session blocking in the King workspace, automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
+`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks downloaded bytes and filenames, uploaded files after restart, manual New Session blocking in the King workspace, automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-The current implementation passed type checking, 91 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+The current implementation passed type checking, 96 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.

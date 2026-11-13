@@ -1,6 +1,6 @@
 {
   "name": "roundtable-bots",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Named Bots and group conversations for DeepSeek Harness.",
   "icon": "./assets/roundtable-bots-icon-v2.png",
   "type": "module",
@@ -28,7 +28,8 @@
         "@deepseek-ai/dsh-client-ui-input-trigger",
         "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-workspace"
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-file-actions"
       ]
     }
   },

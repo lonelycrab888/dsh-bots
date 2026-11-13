@@ -360,6 +360,11 @@ class Fixture extends LlmAdapter {
       }
       if(toolResults.some(result=>result.isError)){toolCall=undefined;text='V041-TOOL-FAILED '+JSON.stringify(toolResults)}
     }
+    if (latest?.includes('V042-FILES')) {
+      const path=join(process.env.DSH_HOME,'documents','deepseek-harness','default-workspace','交付 报告.bin')
+      const encoded=path.split('/').map(encodeURIComponent).join('/')
+      text=`V042-FILES-DONE\n\n[相对文件](./%E4%BA%A4%E4%BB%98%20%E6%8A%A5%E5%91%8A.bin) · [绝对文件](${encoded}) · [file链接](file://${encoded}) · [sandbox链接](sandbox:${encoded}) · [缺失文件](./missing-v042.bin) · [网页](https://example.com/report) · [不安全链接](javascript:alert%281%29)`
+    }
     if (latest?.includes('V041-GROUP')) text='V041-GROUP-DONE 共享事实：项目编号 PROJECT-741。'
     // The host also calls the adapter to generate titles for native conversations.
     if (prompt) {
