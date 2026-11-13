@@ -87,6 +87,19 @@ export async function apply(ctx: Context, config: Config) {
   const nativeBots = new WeakSet<Agent>()
   const botInputs = new WeakMap<Agent, {text:string;owner:boolean}>()
   const visibility = new WorkspaceVisibility(ctx.get('workspaceRegistry') as unknown as WorkspaceRegistryPort)
+  let reorderPending: ReturnType<typeof setImmediate> | undefined
+  ctx.on('domain/changed', change => {
+    if (change.domain !== 'workspace' || change.table !== 'workspaces' || change.operation !== 'put' || reorderPending || lifetime.signal.aborted) return
+    // The domain event precedes the workspace entity's cache update. Defer the
+    // read, and never await a new domain write inside its own notification.
+    reorderPending = setImmediate(() => {
+      reorderPending = undefined
+      const selected = config.kingWorkspace.get()
+      if (!selected || lifetime.signal.aborted) return
+      void visibility.keepFirst(selected.path, selected.sessionId).catch(error => ctx.logger.warn(`dsh-bots: KingBot order: ${String(error)}`))
+    })
+  })
+  ctx.effect(() => () => { if (reorderPending) clearImmediate(reorderPending) })
   let resetting=false
   const resetPort:ResetPort={
     read:()=>({state:{library:validateLibrary(config.library.get()),kingMemory:validateMemory(config.kingMemory.get()),kingWorkspace:config.kingWorkspace.get(),resetEpoch:config.resetEpoch.get(),sessionEpoch:config.sessionEpoch.get(),resetPending:config.resetPending.get()},revision:ctx.settings.describe().find(entry=>entry.ns==='dsh-bots')!.revision}),
@@ -362,7 +375,7 @@ export async function apply(ctx: Context, config: Config) {
       ctx.get('sessionTitle')?.rename(target.session, bot.name)
       await ctx.sessions.flush(target.session)
       await checkpointBotSession(target)
-      await visibility.show(selected.path, entry.sessionId)
+      await visibility.show(selected.path, entry.sessionId, selected.sessionId)
       if (ctx.workspaceRegistry.archivedSessionIds.includes(id)) await ctx.workspaceRegistry.unarchiveSession(id)
       if (entry.previousSessionId) {
         await ctx.workspaceRegistry.archiveSession(SessionId(entry.previousSessionId), {stopActivity:true})

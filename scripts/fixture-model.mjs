@@ -409,7 +409,18 @@ export async function apply(ctx) {
   ctx.tools.register(defineTool({
     name:'fixture_bot_windows',description:'Inspect test-only Bot root sessions.',parameters:{},
     output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
-    async execute(){return JSON.stringify(ctx.agents.list().filter(agent=>!ctx.workspaceRegistry.archivedSessionIds.includes(agent.id)&&ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='bot').map(agent=>({sessionId:String(agent.id),botId:ctx.sessionProjections.stateOf(agent.session,'dshBots').group.botId})))}
+    async execute(){
+      const visible=ctx.agents.list().filter(agent=>!ctx.workspaceRegistry.archivedSessionIds.includes(agent.id))
+      const king=visible.find(agent=>ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='king')
+      const workspace=ctx.workspaceRegistry.list().find(item=>item.sessionIds.includes(king?.id))
+      if(!king||!workspace||workspace.sessionIds[0]!==king.id)throw new Error('KingBot is not first in its workspace')
+      const pins=JSON.stringify(ctx.workspaceRegistry.pinnedSessionIds)
+      await workspace.insertSessionBefore(king.id)
+      for(let attempt=0;attempt<100&&workspace.sessionIds[0]!==king.id;attempt++)await delay(10)
+      if(workspace.sessionIds[0]!==king.id)throw new Error('KingBot order did not recover after manual reorder')
+      if(JSON.stringify(ctx.workspaceRegistry.pinnedSessionIds)!==pins)throw new Error('Workspace ordering changed global pins')
+      return JSON.stringify(visible.filter(agent=>ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='bot').map(agent=>({sessionId:String(agent.id),botId:ctx.sessionProjections.stateOf(agent.session,'dshBots').group.botId,kingFirst:true})))
+    }
   }))
   ctx.tools.register(defineTool({
     name: 'fixture_seed_recovery', description: 'Isolated smoke fixture only.',

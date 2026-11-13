@@ -118,6 +118,8 @@ async function exerciseNativeBots() {
     const previousShared=await page.getByText('V041-SHARED-DONE',{exact:false}).count()
     await editor.fill('V041-SHARED 重启后检索');await button('发送消息').click()
     await page.getByText('V041-SHARED-DONE',{exact:false}).nth(previousShared).waitFor()
+    await editor.fill('V041-WINDOWS 重启后核对置顶');await button('发送消息').click()
+    await page.getByText('V041-WINDOWS-DONE',{exact:false}).last().waitFor()
     await button('搜索会话').click();await page.getByPlaceholder(/搜索会话名称/).fill('共享记忆二群')
     await page.getByRole('treeitem',{name:/共享记忆二群/}).first().click()
     await page.locator('.dsh-bots-reasoning summary').last().click()
@@ -133,8 +135,8 @@ async function exerciseNativeBots() {
   assert.ok(!a.tools.includes('create_bots'),'Child private chats do not inherit King management tools')
   const toolText=call=>call.toolResults?.flatMap(content=>content.filter(block=>block.type==='text').map(block=>block.text)).join('\n')
   const windows=calls.filter(call=>call.input.startsWith('V041-WINDOWS')&&call.toolResults?.length)
-  assert.equal(windows.length,2)
-  for(const call of windows){const sessions=JSON.parse(toolText(call));assert.equal(sessions.length,1);assert.equal(new Set(sessions.map(item=>item.botId)).size,1)}
+  assert.equal(windows.length,3)
+  for(const call of windows){const sessions=JSON.parse(toolText(call));assert.equal(sessions.length,1);assert.ok(sessions.every(item=>item.kingFirst));assert.equal(new Set(sessions.map(item=>item.botId)).size,1)}
   for(const native of ['nativeKing','nativeBot']) {
     const shared=calls.find(call=>call[native]&&call.input.startsWith('V041-SHARED')&&call.toolResults?.length)
     const data=JSON.parse(toolText(shared))

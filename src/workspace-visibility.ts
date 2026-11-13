@@ -28,7 +28,7 @@ export class WorkspaceVisibility {
     await this.hide(path)
     if(existsSync(path))rmSync(this.file(path),{force:true})
   }
-  async show(path:string,mainSession:string){
+  async show(path:string,mainSession:string,firstSession=mainSession){
     const file=this.file(path),prior=existsSync(file)?snapshotSchema.parse(JSON.parse(readFileSync(file,'utf8'))):undefined
     let workspace=this.registry.list().find(w=>w.path===realpathSync(path))
     workspace??=await this.registry.create(path,prior?.title)
@@ -49,6 +49,13 @@ export class WorkspaceVisibility {
       this.write(file,{...prior,hidden:false})
     }
     if(!workspace.sessionIds.includes(mainSession))await workspace.attachSession(mainSession)
+    await this.keepFirst(path,firstSession)
+  }
+  async keepFirst(path:string,sessionId:string){
+    const workspace=this.registry.list().find(item=>item.path===path)
+    if(!workspace||!workspace.sessionIds.includes(sessionId)||this.registry.archivedSessionIds.includes(sessionId))return
+    const first=workspace.sessionIds[0]
+    if(first!==sessionId)await workspace.insertSessionBefore(sessionId,first)
   }
   async hide(path:string){
     const canonical=existsSync(path)?realpathSync(path):path

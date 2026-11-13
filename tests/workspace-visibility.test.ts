@@ -3,7 +3,7 @@ import{WorkspaceVisibility,type WorkspaceRegistryPort}from'../src/workspace-visi
 test('disable hides only the King registration and sessions; enable restores membership, archive state and pins',async()=>{
  const path=realpathSync(mkdtempSync(join(tmpdir(),'dsh-visibility-')))
  let items:any[]=[];let serial=0
- const make=(p:string,title:string,ids:string[]=[])=>({id:String(++serial),path:p,title,sessionIds:ids,async attachSession(id:string){if(!this.sessionIds.includes(id))this.sessionIds.push(id)},async insertSessionBefore(id:string,before?:string){this.sessionIds=this.sessionIds.filter(x=>x!==id);this.sessionIds.splice(before?this.sessionIds.indexOf(before):this.sessionIds.length,0,id)}})
+ const make=(p:string,title:string,ids:string[]=[])=>({id:String(++serial),path:p,title,sessionIds:ids,async attachSession(id:string){if(!this.sessionIds.includes(id))this.sessionIds.unshift(id)},async insertSessionBefore(id:string,before?:string){this.sessionIds=this.sessionIds.filter(x=>x!==id);this.sessionIds.splice(before?this.sessionIds.indexOf(before):this.sessionIds.length,0,id)}})
  items=[make(path,'Bots',['main','already-archived']),make('/other','Other',['unrelated'])]
  const registry:WorkspaceRegistryPort={list:()=>items,create:async(p,t)=>{const w=make(p,t??'Bots');items.unshift(w);return w},delete:async id=>{items=items.filter(w=>w.id!==id);return true},archivedSessionIds:['already-archived'],pinnedSessionIds:['main','unrelated'],async archiveSession(id){this.archivedSessionIds=[...new Set([...this.archivedSessionIds,id])];this.pinnedSessionIds=this.pinnedSessionIds.filter(x=>x!==id)},async unarchiveSession(id){this.archivedSessionIds=this.archivedSessionIds.filter(x=>x!==id)},async pinSession(id){this.pinnedSessionIds=[id,...this.pinnedSessionIds.filter(x=>x!==id)]},async insertBefore(id,before){const item=items.find(w=>w.id===id);items=items.filter(w=>w.id!==id);items.splice(before?items.findIndex(w=>w.id===before):items.length,0,item)}}
  try{
@@ -13,8 +13,18 @@ test('disable hides only the King registration and sessions; enable restores mem
   await new WorkspaceVisibility(registry).show(path,'main')
   assert.deepEqual(items.map(w=>w.title),['Bots','Other']);assert.deepEqual(items[0].sessionIds,['main','already-archived'])
   assert.deepEqual(registry.archivedSessionIds,['already-archived']);assert.deepEqual(registry.pinnedSessionIds,['main','unrelated'])
+  const visibility=new WorkspaceVisibility(registry)
+  await visibility.show(path,'child-a','main');await visibility.show(path,'child-b','main')
+  assert.deepEqual(items[0].sessionIds,['main','child-b','child-a','already-archived'])
+  await items[0].insertSessionBefore('main')
+  await visibility.keepFirst(path,'main');await visibility.keepFirst(path,'main')
+  assert.deepEqual(items[0].sessionIds,['main','child-b','child-a','already-archived'])
+  assert.deepEqual(registry.pinnedSessionIds,['main','unrelated'])
+  await visibility.keepFirst('/other','main')
+  assert.deepEqual(items[1].sessionIds,['unrelated'])
   await new WorkspaceVisibility(registry).hide(path);await new WorkspaceVisibility(registry).hide(path);await new WorkspaceVisibility(registry).show(path,'main')
   assert.deepEqual(registry.archivedSessionIds,['already-archived'])
+  assert.deepEqual(items[0].sessionIds,['main','child-b','child-a','already-archived'])
   await new WorkspaceVisibility(registry).forget(path)
   await new WorkspaceVisibility(registry).show(path,'new-main')
   assert.deepEqual(items[0].sessionIds,['new-main']);assert(registry.archivedSessionIds.includes('main'))

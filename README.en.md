@@ -12,6 +12,8 @@ Chat, write, analyze, search, and work with files in DeepSeek Harness. When a ta
 
 ## Features
 
+- **KingBot stays first in its workspace.** Creating or clearing child chats, restarting, and manual reordering preserve KingBot at the top of its workspace session list.
+
 - **Native private chat for every Bot.** Creation automatically adds one standard Agent conversation in the King workspace. Existing Bots receive one after upgrading. Reopening reuses it; clearing archives the old window and replaces its context. KingBot retains all management and group tools.
 - **Three memory layers.** Each Bot has its own personal memory, access to shared group history, and the current native window context.
 - **Visible model reasoning in groups.** Expand the reasoning returned by the model while it streams, or revisit it after restart. Models that do not return reasoning show no reasoning panel.
