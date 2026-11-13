@@ -250,7 +250,3 @@ button[aria-label="Bots"] { text-align: left; justify-content: flex-start; }
 .dsh-bots-task dt { font-weight: 650; }
 .dsh-bots-task-status p { margin: 4px 0; }
 .dsh-bots-message:focus { outline: 1px solid var(--bots-accent); outline-offset: -1px; }
-
-.dsh-bots-king-history { margin: 8px 0; }
-.dsh-bots-king-history > summary { cursor: pointer; }
-.dsh-bots-king-history > .dsh-bots-timeline { max-height: 360px; overflow-y: auto; }

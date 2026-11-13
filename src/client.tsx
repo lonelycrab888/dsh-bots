@@ -522,18 +522,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
     if (log && follow.current) log.scrollTop = log.scrollHeight
   }, [group?.rows])
   if (!group) return null
-  if (group.mode === 'king') return group.rows.length || group.confirmation ? <details className="dsh-bots dsh-bots-king-history">
-    <summary>群聊回执与历史记录{group.confirmation ? ' · 待完善建群方案' : ''}</summary>
-    <div className="dsh-bots-timeline">
-      {group.rows.map(row => <article key={row.id} className="dsh-bots-message">
-        <div className="dsh-bots-bubble"><strong>{row.author === 'user' ? '你' : 'KingBot'}</strong>
-          <MarkdownReply text={row.text} format={formatMentions} />
-          {'sessionId' in row && row.sessionId && <button type="button" onClick={() => openSession(row.sessionId!)}>打开群聊</button>}
-        </div>
-      </article>)}
-      {group.confirmation && <GroupConfirmation key={group.confirmation.id} confirmation={group.confirmation} choose={chooseGroup} />}
-    </div>
-  </details> : null
+  if (group.mode === 'king') return null
   return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
     {<TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
