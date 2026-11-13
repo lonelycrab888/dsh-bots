@@ -11,7 +11,7 @@ import { WorkspaceMemory } from './workspace-memory.ts'
 import { realpathSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentSetup, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
@@ -28,8 +28,8 @@ import { askGroupUserTool, MemberRun, outcomeText, registerGroupQuestion, stageT
 import { appendDelegatedPolicyOverrides, applyChildComposition, captureDelegatedPolicyOverrides, childSessionMeta, resolveChildAgentOptions, resolveChildDepth } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { memoryContext, memoryInstructions, validateMemory, type KingMemory } from './memory.ts'
-import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName, discussionTopic, isBotCreationRequest, parsePlan, resolveTargets, selectMembers, validateLibrary, createRequestedBots, type Group, type Member, type Row } from './bots.ts'
+import { memoryContext, validateMemory, type KingMemory } from './memory.ts'
+import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName, discussionTopic, resolveTargets, selectMembers, validateLibrary, createRequestedBots, type Group, type Member, type Row } from './bots.ts'
 import { projection } from './projection.ts'
 import type { Config, KingWorkspace } from './config.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from './group-creation.ts'
@@ -37,6 +37,7 @@ import { continuesDiscussion, discussionInstructions, explicitDiscussionPause, k
 import { findTask, modelTopic, newTask, operationMayChangeState, resultRowId, taskActionLabel, taskControl, taskDigest, taskRows, type DiscussionTask, type TaskAction, type TaskOperation } from './tasks.ts'
 import { acknowledgePeerTool, peerMessageId, peerReceipt, registerPeerTools, sameSend, sendPeerTool, type PeerChannel, type PeerMessage, type PeerTools } from './peer-messages.ts'
 import { groupRequestSchema, confirmedGroupRoute, deliveryRowId, groupProgress, groupTitle, isGroupReference, matchingGroups, parseExistingGroupRequest, queuedGroupTask, workspaceMatches, type ExistingGroup, type GroupDelivery, type GroupTaskUpdate, type ExistingGroupRequest } from './existing-groups.ts'
+import { kingInstructions, registerKingAgentTools } from './king-agent.ts'
 import { registerKingGroupTools, type KingGroupTools } from './group-tools.ts'
 export { Config } from './config.ts'
 
@@ -176,7 +177,9 @@ export async function apply(ctx: Context, config: Config) {
       try{
         await recovery
         const request=z.object({options:resetOptions,revision:z.number().int(),confirmation:z.literal('RESET')}).parse(input)
-        if(resetting||activeTurns.size)throw new Error('请先停止正在执行的 Bot 任务，再重置。')
+        const kingSessionId = config.kingWorkspace.get()?.sessionId
+        const kingAgent = kingSessionId ? ctx.agents.get(SessionId(kingSessionId)) : undefined
+        if (resetting || activeTurns.size || kingAgent && kingAgent.status !== 'idle') throw new Error('请先停止正在执行的 Bot 任务，再重置。')
         resetting=true
         try{await performReset(resetPort,request.options,request.revision);recoveryError=''}finally{resetting=false}
         return {kind:'success',text:JSON.stringify({reset:true})}
@@ -202,6 +205,7 @@ export async function apply(ctx: Context, config: Config) {
           const selected: KingWorkspace = { path, sessionId:String(agent.id), legacyImported:true }
           await ctx.settings.update('dsh-bots',{kingWorkspace:selected},entry.revision)
           appendPluginRecord(agent.session,'plugin:dsh-bots/king',{mode:'king'})
+          setupNativeKing(agent)
           appendPluginRecord(agent.session,'plugin:dsh-bots/epoch',{value:config.sessionEpoch.get()})
           ensureCoordinator(agent)
           ctx.get('sessionTitle')?.rename(agent.session, coordinatorName)
@@ -392,12 +396,111 @@ export async function apply(ctx: Context, config: Config) {
     },
   })
 
+  const kingInputs = new WeakMap<Agent, { id: string; text: string; owner: boolean }>()
+  const nativeKings = new WeakSet<Agent>()
+  function setupNativeKing(agent: Agent) {
+    if (nativeKings.has(agent)) return
+    nativeKings.add(agent)
+    const input = () => {
+      const value = kingInputs.get(agent)
+      if (!value?.owner || !authorizedKing(agent) || resetting || config.resetPending.get() ||
+          !sessionIsCurrent(groups.stateOf(agent.session).group!, config.sessionEpoch.get())) throw new Error('当前独聊不可执行管理操作。')
+      return value
+    }
+    const planner = (suffix: string): Extract<Row, { author: 'bot' }> => ({
+      id: `${input().id}:${suffix}`, author: 'bot', botId: coordinatorId, status: 'done', text: '',
+    })
+    const context = agent.ctx.systemPrompt.section({
+      name: 'dsh-bots-native-king', order: 1000, interpolate: false,
+      text: () => {
+        if (!authorizedKing(agent)) return ''
+        const history = (groups.stateOf(agent.session).group?.rows ?? []).map(row => row.author === 'bot' ? { ...row, privateToKing: undefined } : row)
+        return redactDeletedBotIds(kingInstructions + '\n' + memoryContext(storeFor().recall(kingInputs.get(agent)?.text ?? '', config.kingMemory.get()).state) +
+          '\n以下为升级前独聊记录及宿主群聊回执，作为背景资料，当前用户消息优先：\n' +
+          JSON.stringify(prepareContext(history, coordinatorId, undefined, kingInputs.get(agent)?.text ?? '').input), config.library.get().deletedBotIds)
+      },
+    })
+    const management = registerKingAgentTools(agent.ctx, {
+      history(query, messageId, offset = 0) {
+        input()
+        const rows = (groups.stateOf(agent.session).group?.rows ?? []).map(row => row.author === 'bot' ? { ...row, privateToKing: undefined } : row)
+        const selected = messageId ? rows.filter(row => row.id === messageId)
+          : query ? retrieveHistory(rows, query) : rows.slice(-8)
+        const start = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0
+        return selected.slice(0, 8).map(row => {
+          const text = excerpt(row.text.slice(start), 450)
+          return { id: row.id, author: row.author, text: redactDeletedBotIds(text, config.library.get().deletedBotIds),
+            nextOffset: start + text.length < row.text.length ? start + text.length : undefined }
+        })
+      },
+      catalog() { input(); return { bots: config.library.get().bots, workspaces: groupWorkspaces().map(({ id, title, path }) => ({ id, title, path })), pending: groups.stateOf(agent.session).pendingGroup } },
+      async createBots(bots, signal) {
+        signal.throwIfAborted()
+        const request = input()
+        const entry = ctx.settings.describe().find(entry => entry.ns === 'dsh-bots')!
+        const result = createRequestedBots(validateLibrary(config.library.get()), bots, request.text, randomUUID)
+        if (result.created.length) await ctx.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: result.library }], entry.revision)
+        return { created: result.created, existing: result.existing, conflicts: result.conflicts }
+      },
+      async createGroup(raw, signal) {
+        signal.throwIfAborted()
+        const request = input()
+        const existing = groups.stateOf(agent.session).group?.rows.find(row => row.id.startsWith(request.id + ':create-group') && 'sessionId' in row && row.sessionId)
+        if (existing && 'sessionId' in existing) return { groupId: existing.sessionId, receipt: existing }
+        const workspaces = groupWorkspaces()
+        const previous = isGroupRevision(request.text) || groupReply(request.text)?.kind === 'workspace'
+          ? groups.stateOf(agent.session).pendingGroup ?? undefined : undefined
+        const requestKey = request.id + ':' + createHash('sha256').update(JSON.stringify(raw)).digest('hex')
+        const pending = groups.stateOf(agent.session).pendingGroup
+        const proposal = pending?.requestKey === requestKey ? pending
+          : { ...proposeGroup(raw, request.text, validateLibrary(config.library.get()), workspaces, randomUUID, previous), requestKey }
+        appendPluginRecord(agent.session, 'plugin:dsh-bots/group-proposal', { proposal })
+        await ctx.sessions.flush(agent.session)
+        if (!proposal.workspaceId) return { status: 'needs_workspace', proposal, message: describeGroupProposal(proposal, workspaces) }
+        const row = planner('create-group')
+        const message = await replyToGroupProposal(agent, { kind: 'confirm' }, row, signal, confirmationId(proposal))
+        return { message, groupId: proposal.sessionId, receipts: groups.stateOf(agent.session).group?.rows.filter(item => item.id.startsWith(row.id)) }
+      },
+      async confirmGroup(action, signal) {
+        signal.throwIfAborted(); input()
+        const row = planner('group-choice')
+        const message = await replyToGroupProposal(agent, { kind: action }, row, signal)
+        await ctx.sessions.flush(agent.session)
+        return { message, receipts: groups.stateOf(agent.session).group?.rows.filter(item => item.id.startsWith(row.id)) }
+      },
+      async remember(actions, signal) {
+        const request = input()
+        const recalled = storeFor().recall(request.text, config.kingMemory.get())
+        return saveMemories(recalled.state, actions, request.text, agent, signal, recalled.revision)
+      },
+    })
+    const groupTools = registerKingGroupTools(agent.ctx, {
+      async directory(signal) { signal.throwIfAborted(); input(); return { groups: await groupDirectory(signal), confirmed: confirmedGroupRoute(groups.stateOf(agent.session).group!.rows) } },
+      async operate(request, signal) {
+        const source = input()
+        const operationId = source.id + ':' + createHash('sha256').update(JSON.stringify(request)).digest('hex')
+        const row = { ...planner('group-tool'), id: operationId }
+        await handleExistingGroup(agent, source.text, row, { ...source, id: operationId }, signal, request)
+        const receipt = groups.stateOf(agent.session).group?.rows.find(item => item.id === row.id)
+        const ref = receipt && 'sessionId' in receipt ? receipt.sessionId : undefined
+        const record = request.kind === 'inspect' && ref ? await readGroupSession(SessionId(ref), signal) : undefined
+        return { receipt, history: record?.group ? prepareContext(record.group.rows, coordinatorId, record.group.activeTaskId, request.body ?? source.text).input : undefined }
+      },
+    })
+    ctx.effect(() => () => { context(); management(); groupTools(); nativeKings.delete(agent) })
+  }
+
+  for (const agent of ctx.agents.list()) {
+    if (agent.session.header.origin !== 'subagent' && groups.stateOf(agent.session).group?.mode === 'king') setupNativeKing(agent)
+  }
+
   // On restore a committed user message stays visible even if the process died
   // before the matching model reply settled. Never replay a billable request.
   ctx.on('agent/created', async ({ agent, source }) => {
     assertRootCreation(config.kingWorkspace.get(), {cwd:agent.session.header.cwd,sessionId:String(agent.id),origin:agent.session.header.origin,source})
     if (agent.session.header.origin === 'subagent') return undefined
     const group = groups.stateOf(agent.session).group
+    if (group?.mode === 'king') setupNativeKing(agent)
     const titles = ctx.get('sessionTitle')
     const rename = group?.mode === 'king' && String(agent.id) === config.kingWorkspace.get()?.sessionId
       && titles?.get(agent.session)?.title === legacyCoordinatorName
@@ -421,7 +524,15 @@ export async function apply(ctx: Context, config: Config) {
   ctx.on('agent/inbox/inserted', ({ agent, message }) => {
     if (message.source.kind !== 'user' || agent.session.header.origin === 'subagent') return
     const group = groups.stateOf(agent.session).group
-    if (!group || group.mode === 'king') return
+    if (!group) return
+    if (group.mode === 'king') {
+      kingInputs.set(agent, { id: 'rpcId' in message.source ? message.source.rpcId : message.id,
+        text: message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n'),
+        owner: !('principal' in message.source) || message.source.principal === undefined })
+      const selected = config.library.get().kingModel
+      if (selected) agent.model.select(selected as ModelSelection)
+      return
+    }
     const active = activeDiscussions.get(agent)
     const earlier = interjections.get(agent)
     if (!active && !earlier) return
@@ -476,6 +587,23 @@ export async function apply(ctx: Context, config: Config) {
       return {kind:'reject'}
     }
     if (!existingGroup) return next()
+    if (existingGroup.mode === 'king' && agent.session.header.origin !== 'subagent') {
+      setupNativeKing(agent)
+      for (const message of messages) {
+        if (message.source.kind === 'user') {
+          kingInputs.set(agent, { id: 'rpcId' in message.source ? message.source.rpcId : message.id,
+            text: message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n'),
+            owner: !('principal' in message.source) || message.source.principal === undefined })
+        }
+        if (message.source.kind === 'dsh-bots/group-choice') {
+          const row: Extract<Row, { author: 'bot' }> = { id: message.id + ':confirmation', author: 'bot', botId: coordinatorId, status: 'done', text: '' }
+          const reply = await replyToGroupProposal(agent, { kind: message.source.action }, row, signal, message.source.confirmationId)
+          if (reply) addRows(agent, [{ ...row, text: reply }])
+        }
+      }
+      return next()
+    }
+
 
     // Reject the root model step after routing the native composer input.
     // An empty accepted batch can be refilled by other pre-step listeners.
@@ -1456,118 +1584,8 @@ export async function apply(ctx: Context, config: Config) {
         await moderate((requestedAction || steering || taskMessage?.kind === 'dsh-bots/task-update') && previousTask ? previousTask.goal : topic)
         return
       }
-      if (group.mode === 'king' && groupRequester && await handleExistingGroup(parent, original, planner, groupRequester, signal)) return
-      const pendingGroup = groups.stateOf(parent.session).pendingGroup
-      const groupControl = group.mode === 'king' ? groupReply(text, Boolean(pendingGroup)) : undefined
-      if (groupControl) {
-        const reply = await replyToGroupProposal(parent, groupControl, planner, signal, clicked)
-        if (reply !== undefined) addRows(parent, [{ ...planner, status: 'done', text: reply }])
-        return
-      }
-      const recalled = storeFor().recall(text,config.kingMemory.get(), inGroup ? 'topic' : 'personal')
-      const memory = recalled.state
-      const workspaces = group.mode === 'king' ? groupWorkspaces() : []
-      const previousProposal = pendingGroup && isGroupRevision(text) ? pendingGroup : undefined
-      if (pendingGroup) appendPluginRecord(parent.session, 'plugin:dsh-bots/group-proposal', { proposal: null })
-      const instructions = `直接回应最新用户消息。最终答复返回 JSON（工具调用在最终答复前完成）。普通答复为 {"reply":"答复"}。平时用一两句，只询问影响结果而且无法从本轮和当前独聊确定的信息。实际交付物可按需展开。
-${group.mode === 'king' ? '已有群的操作必须实际执行，不能仅在 reply 中承诺稍后执行。优先返回 existingGroupAction：{"kind":"send|task|update|inspect|locate","target":"群名或群ID，指代最近目标时填这个群","body":"完整通知原文或任务目标","workspace":"仅在用户指定时填写"}，由宿主立即执行并显示真实回执；不要同时返回 groupAction。仅发通知用 send；要求成员讨论或完成任务用 task；修正/继续当前任务用 update；询问进度用 inspect。用户已授权时直接提交，不再确认。咨询、否定、引用和普通聊天不提交操作。你也可以实际调用工具，工具执行成功后不要再返回 existingGroupAction。每一轮都可调用 list_existing_groups 查找已有群和本独聊最近确认的目标，operate_existing_group 查看记录、原文通知、继续/修正议题或交办新任务。理解用户自然表达并实际调用工具，不要求用户套用句式。明确目标不重复询问，不把续发变成建群；多个可能目标才询问。只有宿主工具回执能证明成功。' : ''}
-${group.mode === 'king' ? `这是你与用户的专属对话。“帮我建立一下”“这几个都帮我建立一下”也是明确创建请求。按当前独聊理解“这几个”指的是谁。用户列出多个角色时分别处理；斜杠可以表示同一角色有多个职责，例如“方法论/实验设计助手”可拟名“实验设计助手”，在 duty 中完整保留方法论和实验设计要求。
-本轮信息足够时返回 botActions 数组（每次最多 6 个）：[{"name":"简短合法名称","duty":"用户要求的职责和边界","reuse":false,"evidence":"本轮请求的逐字原文"}]。名称只用中英文、数字、下划线和连字符，最多 24 个字符。先核对已有成员的名称和职责，真正匹配时填已有名称并标记 reuse:true。同名但职责不同时填新职责并标记 reuse:false，由宿主提示冲突。咨询、否定和引用只回复，不提交操作。只有宿主可确认保存结果。
-已有名称：${JSON.stringify(config.library.get().bots.map(bot => bot.name))}。已有成员职责：${JSON.stringify(config.library.get().bots.map(({ name, duty, archived }) => ({ name, duty, archived })))}。` : '不要返回botActions；创建子Bot请引导用户到KingBot专属对话。'}
-${group.mode === 'king' ? `只有用户明确要新建群，或新任务确实没有合适的已有群时，才可以提出建群方案。用户要求进入已有群、向刚建的群派任务、继续或催促时，提交 existingGroupAction，不得创建同名替代群。简单问题直接回答。咨询、引用、否定和无关话题都不得修改或确认旧方案。
-返回 groupAction：{"title":"简短群名","topic":"保留原任务的目标、限制、交付物","memberIds":["现有成员ID"],"newBots":[{"name":"建议新建的名称","duty":"具体职责"}],"workspaceId":null,"runTask":false,"evidence":"本轮用户直接请求的逐字原文"}。用户指定名单时按该名单，否则按职责推荐启用的成员。确有缺口才建议新 Bot。仅建群时 runTask=false；有任务时为 true 并至少推荐两名子 Bot。用户指定工作区时选对应 ID，重名且没给路径时留空。用户要求修改待确认方案时保留未修改的内容，只变更明确指出的部分。方案由宿主确认并执行，不同时提交 botActions。
-可用成员：${JSON.stringify(config.library.get().bots.filter(bot => !bot.archived).map(({ id, name, duty }) => ({ id, name, duty })))}。普通工作区：${JSON.stringify(workspaces.map(({ id, title }) => ({ id, title })))}。当前待确认方案：${JSON.stringify(previousProposal ?? null)}。` : '不要返回 groupAction；请引导用户到 KingBot 专属对话筹建群聊。'}
-${memory.enabled && memory.autoRemember ? memoryInstructions : '长期记忆自动更新已关闭，不要返回memoryActions，也不要声称已记住或忘记。'}`
-      const kingReading = group.mode === 'king' && groupRequester ? { ...reading, kingGroups: {
-        async directory(toolSignal: AbortSignal) {
-          toolSignal.throwIfAborted(); signal.throwIfAborted()
-          if (!groupRequester.owner || !authorizedKing(parent)) throw new Error('无权访问已有群聊。')
-          return { groups: await groupDirectory(toolSignal), confirmed: confirmedGroupRoute(groups.stateOf(parent.session).group!.rows) }
-        },
-        async operate(request: ExistingGroupRequest, toolSignal: AbortSignal) {
-          toolSignal.throwIfAborted(); signal.throwIfAborted()
-          // One durable action per native user request. Model retries cannot double-send.
-          const prior = groups.stateOf(parent.session).groupDeliveries?.find(item => item.requestId === groupRequester.id)
-          if (prior && (prior.kind !== request.kind || prior.body !== request.body)) throw new Error('本轮已交付一条请求，请勿重复或改写发送。')
-          const toolPlanner = { ...planner, id: planner.id + ':group-tool' }
-          await handleExistingGroup(parent, original, toolPlanner, groupRequester, AbortSignal.any([signal, toolSignal]), request)
-          const latest = groups.stateOf(parent.session)
-          const receipt = latest.group?.rows.find(row => row.id === toolPlanner.id)
-          const ref = receipt && 'sessionId' in receipt ? receipt.sessionId : undefined
-          const record = request.kind === 'inspect' && ref ? await readGroupSession(SessionId(ref), toolSignal) : undefined
-          return { receipt, history: record?.group ? prepareContext(record.group.rows, coordinatorId, record.group.activeTaskId, request.body ?? original).input : undefined, delivery: latest.groupDeliveries?.find(item => item.requestId === groupRequester.id) }
-        },
-      } } : reading
-      const creating = group.mode === 'king' && isBotCreationRequest(text)
-      const prepare = (output: string) => {
-        const plan = parsePlan(output, [])
-        if (plan.existingGroupAction !== undefined) {
-          if (group.mode !== 'king' || !groupRequester) throw new Error('只能在 KingBot 专属对话操作已有群')
-          groupRequestSchema.parse(plan.existingGroupAction)
-        }
-        if (plan.groupAction !== undefined && groups.stateOf(parent.session).groupDeliveries?.some(item => item.requestId === groupRequester?.id)) throw new Error('本轮已操作现有群，不能再创建替代群。')
-        if (plan.groupAction !== undefined) {
-          if (group.mode !== 'king' || plan.botActions !== undefined) throw new Error('建群方案只能在 KingBot 专属对话中提交，新成员建议请写入 groupAction.newBots')
-          const proposal = proposeGroup(plan.groupAction, text, validateLibrary(config.library.get()), workspaces, randomUUID, previousProposal)
-          return { plan, proposal, creation: undefined }
-        }
-        if (plan.botActions === undefined) {
-          if (creating && /已(?:成功)?(?:建立|创建|添加|新建)|(?:建立|创建|添加)成功|\b(?:i have|i've|successfully) (?:created|added)\b/iu.test(plan.reply ?? '')) {
-            throw new Error('KingBot 没有提交待保存的成员，请通过 botActions 提交')
-          }
-          return { plan, creation: undefined }
-        }
-        if (group.mode !== 'king') throw new Error('请在 KingBot 专属对话中创建子 Bot')
-        const entry = ctx.settings.describe().find(entry => entry.ns === 'dsh-bots')!
-        const result = createRequestedBots(validateLibrary(config.library.get()), plan.botActions, text, randomUUID)
-        return { plan, creation: { result, revision: entry.revision } }
-      }
-      const workingKing = { ...main, sessionId: randomUUID() }
-      let output = inGroup ? await ask(main, text, instructions, true) : await askBot(parent, current(), workingKing, text, model, signal, instructions, memory, kingReading)
-      let prepared: ReturnType<typeof prepare>
-      try {
-        prepared = prepare(output)
-      } catch (error) {
-        signal.throwIfAborted()
-        const repair = `原始请求：${text}\n上次回复校验失败：${(error as Error).message}。请按原始请求修正 JSON，原文依据只从原始请求提取。`
-        output = inGroup ? await ask(main, repair, instructions, true) : await askBot(parent, current(), workingKing, repair, model, signal, instructions, memory, kingReading)
-        prepared = prepare(output)
-      }
-      const { plan, creation, proposal } = prepared
-      if (plan.existingGroupAction !== undefined && groupRequester) {
-        await handleExistingGroup(parent, original, planner, groupRequester, signal, groupRequestSchema.parse(plan.existingGroupAction))
-        return
-      }
-      let botStatus = ''
-      if (proposal) {
-        appendPluginRecord(parent.session, 'plugin:dsh-bots/group-proposal', { proposal })
-        botStatus = previousProposal ? describeGroupChange(proposal, previousProposal, workspaces) : describeGroupProposal(proposal, workspaces)
-      }
-      if (creation) {
-        signal.throwIfAborted()
-        const { result, revision } = creation
-        const sections: string[] = []
-        if (result.created.length) {
-          await ctx.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: result.library }], revision)
-          sections.push(`已创建 ${result.created.map(bot => bot.name).join('、')}。`)
-        }
-        if (result.existing.length) {
-          sections.push(`可复用 ${result.existing.map(bot => `${bot.name}${bot.archived ? '（在 Bots 页恢复后可用）' : ''}`).join('、')}。`)
-        }
-        if (result.conflicts.length) sections.push(`${result.conflicts.join('、')} 已有同名 Bot，职责不同。你想复用已有成员，还是给新角色换个名字？`)
-        botStatus = sections.join(' ')
-      }
-      let memoryStatus = ''
-      let memoryFailed = false
-      if (plan.memoryActions !== undefined && !(Array.isArray(plan.memoryActions) && plan.memoryActions.length === 0)) {
-        try { memoryStatus = await saveMemories(memory, plan.memoryActions, text, parent, signal, recalled.revision) }
-        catch (error) {
-          signal.throwIfAborted()
-          memoryFailed = true
-          memoryStatus = `长期记忆未保存：${(error as Error).message}`
-        }
-      }
-      addRows(parent, [{ ...planner, status: memoryFailed ? 'error' : 'done', text: [botStatus, memoryStatus].filter(Boolean).join('\n') || plan.reply! }])
+      const answer = await ask(main, text, '直接回应用户当前请求，按任务需要使用工具。', true)
+      addRows(parent, [{ ...planner, status: 'done', text: answer }])
     } catch (error) {
       const pending = current().rows.filter((row): row is Row & { author: 'bot' } => row.author === 'bot' && row.status === 'working')
       const steered = signal.reason === redirected

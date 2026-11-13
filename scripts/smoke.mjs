@@ -335,6 +335,53 @@ try {
 `)
 
   browser('open', await startHost(), '--browser=chrome')
+  if (process.env.DSH_BOTS_NATIVE_SMOKE === '1') {
+    await writeFile(join(docs, 'native.txt'), 'V040-FILE-CONTENT')
+    browser('run-code', (async page => {
+      const button = name => page.getByRole('button', { name, exact: true })
+      const preview = page.getByRole('button', { name: /^(继续|Continue)$/ })
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).waitFor()
+      if (await preview.isVisible()) await preview.click()
+      await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
+      await button('KingBot').click()
+      await page.getByRole('textbox', { name: 'KingBot 工作区目录' }).fill(WORKSPACE)
+      await button('启用工作区').click()
+      await button('与 KingBot 对话').click()
+      const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+      async function send(text, expected) {
+        await editor.fill(text)
+        await button('发送消息').click()
+        await page.getByText(expected, { exact: false }).last().waitFor({ timeout: 20000 })
+      }
+      await send('V040-CHAT 解释一下天空为什么是蓝色的', 'V040-ANSWER 自然语言回答')
+      if (await page.locator('.dsh-bots-group-scroll').count()) throw new Error('King hides the native conversation')
+      await send('V040-READ 读取 native.txt', 'V040-FILE-CONTENT')
+      await send('V040-SEARCH 搜索资料', 'V040-SEARCH-DONE')
+      await send('V040-CREATE-BOT 帮我创建一个版本助手', 'V040-BOT-DONE')
+      await send('V040-CREATE-GROUP 用版本助手创建一个群聊', 'V040-GROUP-DONE')
+      await send('V040-SEND 向原生验收群发送 V040-NOTICE', 'V040-SEND-DONE')
+      await send('V040-HISTORY 查找刚才的群聊回执', 'V040-HISTORY-DONE')
+      await send('V040-MEMORY 请记住我希望先看结论', 'V040-MEMORY-DONE')
+    }).toString().replace('WORKSPACE', JSON.stringify(docs)))
+    const calls = (await requests()).filter(call => call.nativeKing && call.input.includes('V040-'))
+    assert.ok(calls.length >= 10)
+    assert.equal(new Set(calls.map(call => call.sessionId)).size, 1, 'Native turns must use the same root session')
+    for (const tool of ['read', 'read_group_history', 'web_search', 'create_bots', 'create_group', 'operate_existing_group', 'update_personal_memory']) assert.ok(calls.some(call => call.calledTool === tool), tool)
+    await stopHost()
+    browser('goto', await startHost())
+    browser('run-code', (async page => {
+      const button = name => page.getByRole('button', { name, exact: true })
+      await button('Bots 定义').click()
+      await button('KingBot').click()
+      await button('与 KingBot 对话').click()
+      await page.getByText('V040-ANSWER 自然语言回答', { exact: false }).last().waitFor()
+      const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+      await editor.fill('V040-RECALL 还记得我的偏好吗')
+      await button('发送消息').click()
+      await page.getByText('V040-RECALL-DONE', { exact: false }).last().waitFor()
+    }).toString())
+    console.log('Verified native King conversation, root session continuity, native file tool, Bot creation, group creation, message delivery and restart memory.')
+  } else {
   browser('run-code', (async page => {
     const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE
     const legacy = process.env.DSH_BOTS_SMOKE_LEGACY
@@ -762,6 +809,7 @@ try {
     }
     if (process.env.DSH_BOTS_EXISTING_GROUPS_SMOKE === '1') await exerciseExistingGroups()
     console.log(`Verified natural Bot creation, dynamic discussion, confirmed group placement, and return of results on DSH ${runtime}.`)
+  }
   }
 } catch (error) {
   const diagnostics = hostOutput.split('\n').filter(line => /warn|error|dsh-bots|checkpoint/i.test(line)).slice(-20).join('\n')

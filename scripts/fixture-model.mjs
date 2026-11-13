@@ -264,16 +264,56 @@ class Fixture extends LlmAdapter {
       if (latest.includes('P039-SILENT')) duration = 130_000
       if (latest.includes('P039-TOOL') && !toolResults.length) toolCall = { name: 'read', arguments: '{"file_path":"p038-hostwait.txt"}' }
     }
+    const nativeKing = systemText.includes('你是 KingBot，用户的通用助手')
+    if (nativeKing && input.includes('V040-')) {
+      const call = (name, args) => ({ name, arguments: JSON.stringify(args) })
+      const values = toolResults.map(result => result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+      text = 'V040-ANSWER 自然语言回答 **保留 Markdown**。'
+      if (input.includes('V040-CREATE-BOT')) {
+        if (!toolResults.length) toolCall = call('create_bots', { bots: [{ name: '版本助手', duty: '验证新版本', evidence: input }] })
+        else text = 'V040-BOT-DONE ' + values.join('\n')
+      } else if (input.includes('V040-CREATE-GROUP')) {
+        if (!toolResults.length) toolCall = call('list_bots_and_workspaces', {})
+        else if (toolResults.length === 1) {
+          const catalog = JSON.parse(values[0])
+          toolCall = call('create_group', { title: '原生验收群', topic: '验证消息投递', memberIds: [catalog.bots[0].id], workspaceId: catalog.workspaces[0].id, evidence: input })
+        } else if (toolResults.length === 2) {
+          const catalog = JSON.parse(values[0])
+          toolCall = call('create_group', { title: '原生验收群', topic: '验证消息投递', memberIds: [catalog.bots[0].id], workspaceId: catalog.workspaces[0].id, evidence: input })
+        } else {
+          if (JSON.parse(values[1]).groupId !== JSON.parse(values[2]).groupId) throw new Error('Group retry created a duplicate')
+          text = 'V040-GROUP-DONE ' + values.at(-1)
+        }
+      } else if (input.includes('V040-SEND')) {
+        if (!toolResults.length) toolCall = call('operate_existing_group', { kind: 'send', target: '原生验收群', body: 'V040-NOTICE' })
+        else text = 'V040-SEND-DONE ' + values.at(-1)
+      } else if (input.includes('V040-HISTORY')) {
+        if (!toolResults.length) toolCall = call('read_group_history', { query: '原生验收群' })
+        else text = 'V040-HISTORY-DONE ' + values.at(-1)
+      } else if (input.includes('V040-SEARCH')) {
+        if (!toolResults.length) toolCall = call('web_search', { queries: ['native agent smoke'] })
+        else text = 'V040-SEARCH-DONE ' + values.at(-1)
+      } else if (input.includes('V040-READ')) {
+        if (!toolResults.length) toolCall = call('read', { file_path: 'native.txt' })
+        else text = 'V040-READ-DONE ' + values.at(-1)
+      } else if (input.includes('V040-MEMORY')) {
+        if (!toolResults.length) toolCall = call('update_personal_memory', { actions: [{ action: 'remember', text: '用户希望先看结论', evidence: input }] })
+        else text = 'V040-MEMORY-DONE ' + values.at(-1)
+      } else if (input.includes('V040-RECALL')) {
+        text = systemText.includes('先看结论') ? 'V040-RECALL-DONE' : 'V040-RECALL-FAILED'
+      }
+    }
+    if (nativeKing && input.includes('V040-') && toolResults.some(result => result.isError)) { toolCall = undefined; text = 'V040-TOOL-FAILED ' + JSON.stringify(toolResults) }
     // The host also calls the adapter to generate titles for native conversations.
     if (prompt) {
-      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ at: Date.now(), sessionId, role, speaker, input, moderator, discussion, addressed, summarizing, intentCheck,
+      await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ at: Date.now(), sessionId, nativeKing, role, speaker, input, moderator, discussion, addressed, summarizing, intentCheck,
         recoveryInstructions: systemText.includes('上一条决定被拒绝') && !systemText.includes('"kind":"close"'),
         seesPreviousTask: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('验收主持恢复'))),
         duty: systemText.match(/你的职责是：([^\n]+)/u)?.[1],
         seesGroupFact: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('GROUP-A-ONLY-496'))),
         seesWorkspaceInstructions: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('WORKSPACE-INSTRUCTIONS-756'))),
         calledTool: toolCall?.name, failure,
-        ...(/P038-TEST-0[23]|P039-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
+        ...(/P038-TEST-0[23]|P039-|V040-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
     }
     if (role !== 'KingBot' && latest?.includes('P039-STREAM')) {
       yield { type: 'block-start', index: 0, blockType: 'text' }

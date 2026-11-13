@@ -14,6 +14,7 @@ const groupActionSchema = z.object({
 })
 
 export const groupProposalSchema = z.object({
+  requestKey: z.string().optional(),
   title: groupActionSchema.shape.title,
   topic: groupActionSchema.shape.topic,
   members: z.array(z.object({ id: z.string(), name: z.string() })).max(12),

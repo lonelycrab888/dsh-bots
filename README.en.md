@@ -32,7 +32,7 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `roundtable-bots-0.3.12.tgz`. [v0.3.12 release](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.12)
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `roundtable-bots-0.4.0.tgz`. Build the v0.4.0 package with `npm run build && npm pack`
 
 The plugin appears as `roundtable-bots` in the installed list. To upgrade from the old `dsh-bots` package, quit Harness and switch packages in the same profile.
 
@@ -86,7 +86,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=roundtable-bots-0.3.12.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=roundtable-bots-0.4.0.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
@@ -98,7 +98,7 @@ dsh plugin --profile web add "$PWD/$package_file"
 
 ## Talk to KingBot directly
 
-After choosing a workspace, click **与 KingBot 对话** (Talk to KingBot) to open or resume its single dedicated conversation. It uses the native composer and stop control and requires no child Bots.
+After choosing a workspace, click **与 KingBot 对话** (Talk to KingBot) to open or resume its single dedicated conversation. It uses the native Harness Agent, conversation history, streaming, tools and approval flow. You can discuss any topic and ask for normal Agent tasks. Bot creation and group creation/messaging are additional tools.
 
 For example: “Create two child Bots, one for architecture and one for quality assurance. Choose their names and describe their capabilities.” The host validates the proposed definitions and saves them with fresh IDs. Select the new members when creating a group; they do not automatically join existing groups.
 
@@ -165,19 +165,17 @@ Tools retain their own timeouts and permissions. Provider and Harness limits sti
 
 Drop a document into the native composer, describe what to check, and send. Use `@name` to choose who replies. If the desktop composer inserts only `@/absolute/path` or `@"absolute path with spaces"`, the plugin saves the file as an attachment. Supported documents include text, Word `.docx`, and PDFs with a text layer, up to 20 MB each. Each import failure is reported separately, and the remaining attachments are still available. Follow-ups on the same topic can reuse those attachments. Scanned PDFs need text recognition first.
 
-KingBot and child Bots inherit the conversation's Harness Agent preset, working directory, and sandbox policy when executing tasks. The preset and host configuration determine which tools are available, including file tools from `@deepseek-ai/dsh-tool-fs` and available `web_search` and `web_fetch` tools. Web search uses the provider and credentials configured in Harness. Delegated sessions use Harness's noninteractive approval policy. Operations that require interactive approval are denied.
+KingBot private chat runs in its native root Agent with its normal approval policy. Delegated group participants inherit their conversation's Harness Agent preset, working directory, and sandbox policy. The preset and host configuration determine which tools are available, including file tools from `@deepseek-ai/dsh-tool-fs` and available `web_search` and `web_fetch` tools. Web search uses the provider and credentials configured in Harness. Delegated sessions use Harness's noninteractive approval policy. Operations that require interactive approval are denied.
 
 Bots can load `SKILL.md` with `skill` and open referenced files with `read`. `@deepseek-ai/dsh-agent-instructions` loads workspace instructions such as `AGENTS.md` according to the host configuration, with a default limit of 65,536 bytes.
 
 ## Ask KingBot to set up a group and follow through
 
-In the dedicated conversation, ask KingBot to discuss an earlier topic with a group and return a result. KingBot briefly confirms the title and members and proposes specific roles to fill any gaps. You can name members yourself or ask for a group without a task.
+In the dedicated conversation, ask KingBot to discuss an earlier topic with a group and return a result. KingBot creates the group through a tool when the request is sufficiently specified, and asks for missing information when needed. You can name members yourself or ask for a group without a task.
 
 Existing groups remain accessible on later turns and after a restart. Ask KingBot to check progress, forward a literal notice, update requirements, continue the discussion, or start a new task. The host retains confirmed group and workspace identities and asks when a target is ambiguous. Updates stop the old run while preserving context; a new task gets its own goal. Host receipts confirm delivery, and results return to the originating private conversation.
 
-1. Review the members and expand **查看群聊任务** (View group task) when there is a task. Say “Replace the reviewer with the statistician” to update the roster.
-2. Reply `Workspace: name or path` to choose or change the workspace. Use the full path to distinguish duplicate names.
-3. Click **确认建群** (Confirm group) or reply `Confirm group` to approve the destination and any proposed new Bots. Click **取消方案** (Cancel proposal) or reply `Cancel group` to cancel.
+For a pending proposal, provide the missing workspace or revise the members in chat. You can also confirm or cancel it in the receipts panel.
 
 KingBot adds an **打开群聊** (Open group) button to the original conversation. When the approved group has a task, KingBot moderates the discussion and posts the resulting conclusion there. A group created without a task waits for a message.
 
@@ -247,6 +245,12 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` uses Chrome, the Playwright CLI, and a local model stub in an isolated Web profile to check installation, group creation, dynamic moderation, pausing, mentions, returning results, recovery after restart, and context isolation across groups. It compares file reads, skill references, `AGENTS.md`, and `web_search` with a test provider in native sessions and group chats.
+`npm run smoke` and `npm run smoke:native` use Chrome, the Playwright CLI and a deterministic model stub in an isolated Web profile to check native conversation continuity, file reads, search, Bot creation, group creation and retry, message delivery, and memory after restart.
 
 The reset feature was checked through the UI in an isolated profile with synthetic data, including separate member, memory, and association resets and recovery from a missing workspace directory.
+
+## v0.4.0 private conversations
+
+KingBot private chat uses the native Harness Agent in the root conversation, including streaming, tools, approvals, workspace instructions and context management. Responses use natural language. Bot creation and group creation/messaging are additional tools. Fully specified group requests execute immediately. Missing workspaces produce a pending proposal. Existing private-chat records and group receipts remain accessible in an expandable panel and are supplied as bounded background context.
+
+Run `npm run smoke:native` to check native chat, file reading, Bot and group creation, delivery and memory after restart with the deterministic fixture model.

@@ -73,7 +73,7 @@ function KingCard({ snapshot, busy, models, saveModel, catalog, reload }: { snap
   const disabled=busy || working || !snapshot.writable
   return <article className="dsh-bots-king">
     <div className="dsh-bots-name"><Avatar id={coordinatorId} name={coordinatorName} /><h2>KingBot</h2><span className="dsh-bots-badge">主 Bot · 专属对话与长期记忆</span></div>
-    <p>与你单独讨论任务、创建并命名子 Bot。记忆保存在你选择的工作区，供主 Bot 的独聊和群聊共同检索。</p>
+    <p>可以自由聊天、搜索资料和处理工作区任务，也可以创建 Bot、建群和向群聊发送消息。</p>
     {!snapshot.workspace && <p className="dsh-bots-hint">请选择 KingBot 的专属工作区；选择工作区不会清空已有子 Bot。</p>}
     <label className="dsh-bots-model">主 Bot 工作区<input aria-label="KingBot 工作区目录" value={path} onChange={event=>setPath(event.target.value)} placeholder="选择或填写已有文件夹的绝对路径" disabled={disabled}/></label>
     <div className="dsh-bots-toolbar">
@@ -478,7 +478,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   }, [catalog])
   const room = useRef<HTMLElement>(null)
   useLayoutEffect(() => {
-    if (!group || !room.current) return
+    if (!group || group.mode === 'king' || !room.current) return
     const scroll = room.current.closest('[data-conversation-scroll]')
     if (!scroll) return
     const marked: HTMLElement[] = []
@@ -514,7 +514,7 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
     const observer = new MutationObserver(sync)
     observer.observe(scroll, { childList: true, subtree: true })
     return () => { observer.disconnect(); resize.disconnect(); cancelAnimationFrame(frame); element.style.removeProperty('--bots-conversation-width'); element.style.removeProperty('--bots-conversation-offset'); scroll.classList.remove('dsh-bots-group-scroll'); marked.forEach(item => item.classList.remove('dsh-bots-layout-chain')); element.hidden = false }
-  }, [!!group])
+  }, [!!group, group?.mode])
   const timeline = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
   useLayoutEffect(() => {
@@ -522,14 +522,26 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
     if (log && follow.current) log.scrollTop = log.scrollHeight
   }, [group?.rows])
   if (!group) return null
-  return <section ref={room} className="dsh-bots dsh-bots-room" aria-label={group.mode === 'king' ? 'KingBot 专属对话' : '群聊'}>
-    {group.mode !== 'king' && <TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
+  if (group.mode === 'king') return group.rows.length || group.confirmation ? <details className="dsh-bots dsh-bots-king-history">
+    <summary>群聊回执与历史记录{group.confirmation ? ' · 待完善建群方案' : ''}</summary>
+    <div className="dsh-bots-timeline">
+      {group.rows.map(row => <article key={row.id} className="dsh-bots-message">
+        <div className="dsh-bots-bubble"><strong>{row.author === 'user' ? '你' : 'KingBot'}</strong>
+          <MarkdownReply text={row.text} format={formatMentions} />
+          {'sessionId' in row && row.sessionId && <button type="button" onClick={() => openSession(row.sessionId!)}>打开群聊</button>}
+        </div>
+      </article>)}
+      {group.confirmation && <GroupConfirmation key={group.confirmation.id} confirmation={group.confirmation} choose={chooseGroup} />}
+    </div>
+  </details> : null
+  return <section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
+    {<TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
       row?.scrollIntoView({ block: 'nearest' })
       row?.focus({ preventScroll: true })
     }} />}
     {group.rows.length === 0
-      ? <p className="dsh-bots-hint">{group.brief ?? (group.mode==='king'?'可以请 KingBot 创建子 Bot、筹建群聊，或把任务交给群聊讨论。':'发消息后，KingBot 会根据成员的发言主持讨论。可以用 @ 指定参与成员。')}</p>
+      ? <p className="dsh-bots-hint">{group.brief ?? '发消息后，KingBot 会根据成员的发言主持讨论。可以用 @ 指定参与成员。'}</p>
       : <div className="dsh-bots-timeline" ref={timeline} role="log" aria-label="群聊时间线"
           onScroll={event => {
             const log = event.currentTarget
