@@ -89,7 +89,7 @@ export async function apply(ctx: Context, config: Config) {
   const visibility = new WorkspaceVisibility(ctx.get('workspaceRegistry') as unknown as WorkspaceRegistryPort)
   let reorderPending: ReturnType<typeof setImmediate> | undefined
   ctx.on('domain/changed', change => {
-    if (change.domain !== 'workspace' || change.table !== 'workspaces' || change.operation !== 'put' || reorderPending || lifetime.signal.aborted) return
+    if (change.domain !== 'workspace' || !['workspaces',''].includes(change.table) || change.operation !== 'put' || reorderPending || lifetime.signal.aborted) return
     // The domain event precedes the workspace entity's cache update. Defer the
     // read, and never await a new domain write inside its own notification.
     reorderPending = setImmediate(() => {

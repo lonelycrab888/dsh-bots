@@ -54,6 +54,7 @@ export class WorkspaceVisibility {
   async keepFirst(path:string,sessionId:string){
     const workspace=this.registry.list().find(item=>item.path===path)
     if(!workspace||!workspace.sessionIds.includes(sessionId)||this.registry.archivedSessionIds.includes(sessionId))return
+    if(!this.registry.pinnedSessionIds.includes(sessionId))await this.registry.pinSession(sessionId)
     const first=workspace.sessionIds[0]
     if(first!==sessionId)await workspace.insertSessionBefore(sessionId,first)
   }

@@ -215,8 +215,8 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
   const inDirectory = !selection && !edit
   const back = () => { setSelection(undefined); setEdit(undefined); setPendingDelete(undefined); setError(''); setStatus('') }
   return <section className="dsh-bots-library dsh-bots" data-directory={inDirectory || undefined}>
-    <h1>{inDirectory ? 'Bots 定义' : edit && !selected ? '新建 Bot' : 'Bot 设置'}</h1>
-    {!inDirectory && <button type="button" onClick={back}>返回 Bots 定义</button>}
+    <h1>{inDirectory ? 'Roundtable' : edit && !selected ? '新建 Bot' : 'Bot 设置'}</h1>
+    {!inDirectory && <button type="button" onClick={back}>返回 Roundtable</button>}
     {error && <p role="alert" className="dsh-bots-error">{error}</p>}
     {status && <p role="status">{status}</p>}
     {!snapshot ? <p>正在加载 Bot 定义…</p> : <>
@@ -767,12 +767,36 @@ function mountClient(ctx: ClientContext) {
     document.head.append(style)
     return () => style.remove()
   })
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    document.head.append(style)
+    let disposed = false, revision = 0
+    const refresh = async () => {
+      const current = ++revision
+      try {
+        const snapshot = await catalog.load()
+        if (disposed || current !== revision) return
+        const id = snapshot.workspace?.sessionId
+        if (!id) {style.textContent = '';return}
+        // The host also applies browser-local recency/manual order and places
+        // blank chats before pinned ones. Scope the visual priority to this
+        // workspace's direct children, leaving other workspaces and search alone.
+        const row = `[data-row-key="session:${CSS.escape(id)}"]`
+        const header = '[data-row-key^="workspace:"]'
+        const account = `div:has(> ${header}):has(> ${row})`
+        style.textContent = `${account}{display:flex;flex-direction:column}${account}>*{order:2}${account}>${header}{order:0}${account}>${row}{order:1}`
+      } catch { /* Keep the last known identity during a reconnect. */ }
+    }
+    const stop = catalog.subscribe(() => {void refresh()})
+    void refresh()
+    return () => {disposed=true;stop();style.remove()}
+  })
   ctx.effect(() => ctx.inputTriggers.registerSource(groupMentionSource(
     sessionId => ctx.sessions.binding(sessionId)?.session.projections.faceOf('dshBots').getSnapshot(),
     async () => (await catalog.load()).library,
   )))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-    name: 'sidebar.panellist', id: 'dsh-bots', order: 15, label: () => 'Bots 定义',
+    name: 'sidebar.panellist', id: 'dsh-bots', order: 15, label: () => 'Roundtable',
   }, BotsIcon))
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'dsh-bots', inject: () => ({ catalog }) }, BotLibrary))
   ctx.slots.inject('conversation.hero.options', () => ctx.slots.register({

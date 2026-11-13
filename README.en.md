@@ -28,8 +28,8 @@ Chat, write, analyze, search, and work with files in DeepSeek Harness. When a ta
 
 ## How to use it
 
-1. **Choose the King workspace.** Open **Bots**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
-2. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities, or ask KingBot to create one in its dedicated conversation. A fresh installation shows only **KingBot**, the coordinator, with no preset child Bots. You create all child Bots yourself; KingBot joins every group automatically.
+1. **Choose the King workspace.** Open **Roundtable**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
+2. **Define your members.** Open **Roundtable** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities, or ask KingBot to create one in its dedicated conversation. A fresh installation shows only **KingBot**, the coordinator, with no preset child Bots. You create all child Bots yourself; KingBot joins every group automatically.
 3. **Start a group chat.** Create a conversation in a workspace other than the dedicated King workspace. Select **群聊** (Group chat) near the message box, choose members, and click **确认成员** (Confirm members). Select **默认** (Default) to use Harness's native conversation behavior.
 4. **Send a task.** Describe your goal and let KingBot moderate. Mention one child Bot for a direct reply or mention several to have KingBot moderate among those members.
 5. **Read the results.** The bubbles show moderator questions, named member replies, and the coordinator's summary. Type `@` in the composer and choose a Bot from **群聊成员** (Group members).
@@ -84,7 +84,7 @@ git+https://github.com/lonelycrab888/roundtable-bots.git#main
 https://raw.githubusercontent.com/lonelycrab888/roundtable-bots/main/market-index.json
 ```
 
-Enable **roundtable-bots** in the Plugins panel after installation. If **Bots** does not appear in the sidebar, finish any running tasks, fully quit the desktop app, and reopen it.
+Enable **roundtable-bots** in the Plugins panel after installation. If **Roundtable** does not appear in the sidebar, finish any running tasks, fully quit the desktop app, and reopen it.
 
 The Git URL locates the plugin; the npm registry supplies its dependencies. If GitHub returns a 404 for an npm dependency during installation, check that the repository URL was not entered as the installation source.
 
@@ -142,7 +142,7 @@ The first setup imports legacy saved memories once. Switching the King workspace
 
 Click **清空页面 → 确认清空页面** (Clear page → Confirm) above the KingBot composer. The current conversation is archived and a blank one opens in the same workspace with the same Agent preset and selected model. Earlier messages, tool results, and group receipts are not copied into its context. Long-term memory, Bot definitions, and groups are retained. The old conversation remains available in the host archive for reference and cannot run as the active KingBot conversation.
 
-To also erase long-term memory, select **主 Bot 记忆** (King memory) under **Bots → 重置 Bots 数据**. After resetting, the fresh KingBot conversation opens automatically. This prevents old messages from making the Agent appear to remember deleted memory. Stop active tasks before either action.
+To also erase long-term memory, select **主 Bot 记忆** (King memory) under **Roundtable → 重置 Bots 数据**. After resetting, the fresh KingBot conversation opens automatically. This prevents old messages from making the Agent appear to remember deleted memory. Stop active tasks before either action.
 
 ## Bot definitions and model settings
 
@@ -227,7 +227,7 @@ Personal memory updates require evidence from the current user message. Private 
 
 Public group messages are saved automatically, and existing group journals are indexed after upgrading. Full originals remain on disk; models retrieve bounded excerpts. Use `messageId` with `nextOffset` for the rest of a long message, and `nextPage` for more records. Directed private messages and model reasoning are excluded from the shared index. Incomplete replies retain their status. Group task progress and execution contexts remain independent, allowing concurrent work in multiple groups.
 
-Manage entries in **Bots → KingBot → 管理工作区记忆** or **Bots → a child Bot → 管理独聊记忆**. Both support search, editing, pinning, archiving, restoring and export. Personal-memory and automatic-update switches apply to all Bots' private memories; shared group history remains available. Ask any Bot to remember a lasting preference or forget an existing entry in its private conversation.
+Manage entries in **Roundtable → KingBot → 管理工作区记忆** or **Roundtable → a child Bot → 管理独聊记忆**. Both support search, editing, pinning, archiving, restoring and export. Personal-memory and automatic-update switches apply to all Bots' private memories; shared group history remains available. Ask any Bot to remember a lasting preference or forget an existing entry in its private conversation.
 
 Personal memory has no fixed entry-count limit. Each entry supports **600 characters**, with up to three automatic updates per turn. SQLite/FTS5 uses keywords and Chinese bigrams rather than vector search. Only selected excerpts enter model context. See [memory design and references](MEMORY-DESIGN.md).
 
@@ -254,7 +254,7 @@ Disabling or uninstalling removes the Bots entry, group chat overlay, styles, an
 
 ## Reset Bots data
 
-Open **Bots → KingBot → 重置 Bots 数据** (Reset Bots data), select the items to reset, type `RESET`, and confirm. Nothing is selected by default. Stop active Bot tasks before resetting.
+Open **Roundtable → KingBot → 重置 Bots 数据** (Reset Bots data), select the items to reset, type `RESET`, and confirm. Nothing is selected by default. Stop active Bot tasks before resetting.
 
 | Option | Result |
 | --- | --- |
