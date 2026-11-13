@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep } from '../src/discussion.ts'
+import { moderatorReplyContext, followsCurrentDiscussion, resolveDiscussionIntent, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep } from '../src/discussion.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from '../src/group-creation.ts'
 import { fixtureLibrary } from './fixtures.ts'
 
@@ -84,4 +84,33 @@ test('moderation admits one eligible speaker at a time and rejects premature clo
   assert.throws(() => parseDiscussionStep('{"kind":"speak","botId":"architect","question":"继续"}', ['reviewer'], false), /允许发言/)
   assert.throws(() => parseDiscussionStep('{"kind":"close"}', ['reviewer'], false), /继续主持/)
   assert.deepEqual(parseDiscussionStep('{"kind":"close"}', [], true), { kind: 'close' })
+})
+
+
+test('explicit continuation bypasses classification and technical failures retain their own status', async () => {
+  const fail = async () => { throw new Error('model timeout') }
+  for (const text of [
+    '可以，就按照你说的做',
+    '@KingBot 整合当前调研专家的所有结果，继续组织大家按照开始时的议题讨论。',
+    '@KingBot 继续组织大家基于现有结果按照开始时的议题讨论。',
+  ]) {
+    assert.ok(followsCurrentDiscussion(text))
+    assert.deepEqual(await resolveDiscussionIntent(text, true, fail), { kind: 'continue' })
+  }
+  for (const text of ['先停一下', '换个新任务，继续讨论当前方案', '请解释“可以，就按照你说的做”的含义', '不要按照你说的做']) assert.equal(followsCurrentDiscussion(text), false)
+  assert.deepEqual(await resolveDiscussionIntent('新的具体问题', true, fail), { kind: 'unavailable' })
+  assert.deepEqual(await resolveDiscussionIntent('新的具体问题', true, async () => 'invalid json'), { kind: 'unavailable' })
+  assert.deepEqual(await resolveDiscussionIntent('换个方向吧', true, async () => '{"kind":"clarify"}'), { kind: 'clarify' })
+  assert.deepEqual(await resolveDiscussionIntent('可以，就按照你说的做', false, fail), { kind: 'unavailable' })
+})
+
+
+test('long moderator summaries retain their final proposed next step', () => {
+  const suggestion = '下一步先写立项书初稿，可以吗？'
+  const text = '已确认研究范围。' + '详细调研依据。'.repeat(2000) + suggestion
+  const context = moderatorReplyContext(text)
+  assert.ok(context.startsWith('已确认研究范围。'))
+  assert.ok(context.endsWith(suggestion))
+  assert.ok(context.length < text.length)
+  assert.equal(moderatorReplyContext(suggestion), suggestion)
 })

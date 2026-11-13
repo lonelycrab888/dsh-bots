@@ -209,7 +209,7 @@ async function exerciseTaskRecovery(defaultWorkspace) {
     await page.getByRole('treeitem', { name: /恢复验收群/ }).click()
     const task = page.getByRole('complementary', { name: '议题与进度' })
     await task.getByText(/已收到 1 条发言.*待核对/).waitFor()
-    if (await button('继续讨论').isEnabled()) throw new Error('An unverified write must not restart')
+    if (!await button('继续讨论').isEnabled()) throw new Error('Pending operations must still allow discussion')
     await button('汇总已有结果').evaluate(button => { button.click(); button.click() })
     await page.getByRole('log').getByText(/尚未收到 @?架构师/).waitFor()
     await page.getByRole('button', { name: /^Bots(?: 定义)?$/ }).click()
@@ -380,6 +380,39 @@ try {
       await button('发送消息').click()
       await page.getByText('V040-RECALL-DONE', { exact: false }).last().waitFor()
     }).toString())
+    browser('run-code', (async page => {
+      const button = name => page.getByRole('button', { name, exact: true })
+      const kingEditor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+      await kingEditor.fill('V040-SEED-RECOVERY')
+      await button('发送消息').click()
+      await page.getByText('V040-SEEDED-DONE', { exact: false }).last().waitFor()
+      await page.locator('.dsh-bots-king-history > summary').click()
+      await button('打开群聊').last().click()
+      const log = page.getByRole('log', { name: '群聊时间线' })
+      await log.waitFor()
+      const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
+      async function send(text, expected) {
+        await editor.fill(text)
+        await button('发送消息').click()
+        await log.getByText(expected, { exact: false }).last().waitFor({ timeout: 20000 })
+      }
+      await log.getByText('V040-SEEDED', { exact: true }).waitFor()
+      for (const text of ['可以，就按照你说的做', '我的意思是按照你说的这个做，先把「1. 进展」成文，作为立项书开篇。现在就出这一段初稿', '已核对，继续', '@KingBot 整合当前调研专家的所有结果，继续组织大家按照开始时的议题讨论。']) {
+        await send(text, 'V040-RECOVERED ' + text)
+      }
+      await send('V040-INTENT-FAIL 重新看一下这些材料', '这次识别新消息的请求失败了，当前议题和进度已保留。请重发这条要求，或点击继续讨论。')
+      await send('@KingBot 继续组织大家基于现有结果按照开始时的议题讨论。', 'V040-RECOVERED @KingBot 继续组织大家基于现有结果按照开始时的议题讨论。')
+      if (await log.getByText(/你想处理哪个议题|你是想调整当前议题/).count()) throw new Error('Unexpected clarification loop')
+    }).toString())
+    const recovery = (await requests()).filter(call => call.moderator && call.input.includes('V040-RECOVERY'))
+    assert.ok(recovery.length >= 5)
+    const first = JSON.parse(JSON.parse(recovery[0].input).最新用户消息)
+    assert.equal(first.最新用户消息, '可以，就按照你说的做')
+    assert.ok(first.上次主持答复.includes('立项书开篇'))
+    assert.ok(recovery.some(call => call.input.includes('现在就出这一段初稿')))
+    await assert.rejects(stat(join(defaultWorkspace, 'v040-blocked.txt')), { code: 'ENOENT' })
+    assert.equal(await readFile(join(defaultWorkspace, 'v040-verified.txt'), 'utf8'), 'verified')
+    console.log('Verified screenshot recovery with three tasks, pending read/write operations, confirmation, corrected drafting request and classifier failure.')
     console.log('Verified native King conversation, root session continuity, native file tool, Bot creation, group creation, message delivery and restart memory.')
   } else {
   browser('run-code', (async page => {

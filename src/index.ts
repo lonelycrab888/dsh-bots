@@ -33,8 +33,8 @@ import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName,
 import { projection } from './projection.ts'
 import type { Config, KingWorkspace } from './config.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from './group-creation.ts'
-import { continuesDiscussion, discussionInstructions, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, parseDiscussionIntent, parseDiscussionStep, type DiscussionIntent } from './discussion.ts'
-import { findTask, modelTopic, newTask, operationMayChangeState, resultRowId, taskActionLabel, taskControl, taskDigest, taskRows, type DiscussionTask, type TaskAction, type TaskOperation } from './tasks.ts'
+import { continuesDiscussion, discussionInstructions, explicitDiscussionPause, keepsDiscussionGoing, mayRedirectDiscussion, moderatorReplyContext, resolveDiscussionIntent, parseDiscussionStep, type DiscussionIntent } from './discussion.ts'
+import { findTask, unresolvedOperations, verifiedOperation, modelTopic, newTask, operationMayChangeState, resultRowId, taskActionLabel, taskControl, taskDigest, taskRows, type DiscussionTask, type TaskAction, type TaskOperation } from './tasks.ts'
 import { acknowledgePeerTool, peerMessageId, peerReceipt, registerPeerTools, sameSend, sendPeerTool, type PeerChannel, type PeerMessage, type PeerTools } from './peer-messages.ts'
 import { groupRequestSchema, confirmedGroupRoute, deliveryRowId, groupProgress, groupTitle, isGroupReference, matchingGroups, parseExistingGroupRequest, queuedGroupTask, workspaceMatches, type ExistingGroup, type GroupDelivery, type GroupTaskUpdate, type ExistingGroupRequest } from './existing-groups.ts'
 import { kingInstructions, registerKingAgentTools } from './king-agent.ts'
@@ -632,7 +632,7 @@ export async function apply(ctx: Context, config: Config) {
       const waitingForUser = group.tasks?.some(task => task.id === group.activeTaskId && task.status === 'paused' && task.question)
       if (original && !taskMessage && group.mode !== 'king') {
         const command = localDocumentReferences(original).text
-        const typedControl = !original.includes('@') && group.tasks?.length && taskControl(command)
+        const typedControl = group.tasks?.length && taskControl(command)
         try { directlyAddressed = resolveTargets(command, availableMembers(group, validateLibrary(config.library.get())), workspaceEntry(agent)).length === 1 }
         catch { /* Dispatch reports invalid mentions. */ }
         if (!directlyAddressed && !typedControl) {
@@ -652,8 +652,9 @@ export async function apply(ctx: Context, config: Config) {
       }
       turnSignal.throwIfAborted()
       if (interjection?.controller.signal.aborted) { preserve(); continue }
-      if (intent && (intent.kind === 'pause' || intent.kind === 'clarify' || intent.kind === 'status')) {
-        const prompt = intent.kind === 'status' ? groupProgress(group)
+      if (intent && (intent.kind === 'pause' || intent.kind === 'clarify' || intent.kind === 'status' || intent.kind === 'unavailable')) {
+        const prompt = intent.kind === 'unavailable' ? '这次识别新消息的请求失败了，当前议题和进度已保留。请重发这条要求，或点击继续讨论。'
+          : intent.kind === 'status' ? groupProgress(group)
           : intent.kind === 'clarify' ? '我先暂停派发。你是想调整当前议题，还是开始一项新任务？'
           : '已暂停讨论。接下来你想让大家讨论或完成什么？'
         preserve()
@@ -710,27 +711,26 @@ export async function apply(ctx: Context, config: Config) {
 
   async function classifyDiscussionInput(parent: Agent, group: Group, text: string, model: ModelSelection | undefined, signal: AbortSignal): Promise<DiscussionIntent> {
     const main = ensureCoordinator(parent)
-    const fallback: DiscussionIntent = { kind: 'clarify' }
+    const fallback: DiscussionIntent = { kind: 'unavailable' }
     if (!model) return fallback
     const task = group.tasks?.find(item => item.id === group.activeTaskId)
     const digest = task && taskDigest(task, group.rows)
     const prompt = JSON.stringify({
       当前议题: task?.goal ?? group.rows.findLast(row => row.author === 'user' && !row.control)?.text,
       用户最近要求: digest?.user.slice(-6).map(row => row.text),
-      已有结论: digest?.result?.text.slice(0, 3000),
+      已有结论: digest?.result ? moderatorReplyContext(digest.result.text) : undefined,
       已完成发言: digest?.completed.slice(-6).map(item => ({ 成员: item.name, 内容: item.text.slice(0, 700) })),
       未完成点: digest?.questions.slice(-6),
       待用户回答: task?.question?.text,
       用户新消息: text,
     })
     const instructions = '判断群聊用户新消息的语义，依据当前议题、已有进度和最新原文。回答待确认问题、补充或更正当前要求用 {"kind":"continue"}。只询问当前进度用 {"kind":"status"}。要等用户、暂停或停止用 {"kind":"pause"}。用户明确交办一个具体的新任务才用 {"kind":"redirect","task":"原文中的完整新任务"}。需要确认方向时用 {"kind":"clarify"}。只输出 JSON。'
-    try {
+    return resolveDiscussionIntent(text, Boolean(task && task.status !== 'ended'), async () => {
       const scope = { ...group, coordinator: main, rows: [], brief: undefined }
       const memory: KingMemory = { enabled: false, autoRemember: false, entries: [] }
-      const output = await askBot(parent, scope, { ...main, sessionId: randomUUID() }, prompt, model,
-        AbortSignal.any([signal, AbortSignal.timeout(8_000)]), instructions, memory)
-      return parseDiscussionIntent(output, text)
-    } catch { return fallback }
+      return askBot(parent, scope, { ...main, sessionId: randomUUID() }, prompt, model,
+        AbortSignal.any([signal, AbortSignal.timeout(30_000)]), instructions, memory)
+    })
   }
 
   function groupWorkspaces() {
@@ -1174,16 +1174,9 @@ export async function apply(ctx: Context, config: Config) {
       await ctx.sessions.flush(parent.session)
       return
     }
-    if (!addressed && requestedAction !== 'summarize' && requestedAction !== 'finish' && previousTask?.operations.length && !typed?.verified) {
-      addRows(parent, [{ id, author: 'user', text: original, control: true }, {
-        id: `${id}:verify`, author: 'bot', botId: main.id, status: 'done',
-        text: '还有操作结果待核对。检查后回复「已核对，继续」，或先汇总已有结果。',
-      }])
-      await ctx.sessions.flush(parent.session)
-      return
-    }
+    if (task) task = { ...task, operations: unresolvedOperations(task) }
     if (task && typed?.verified) task = {
-      ...task, verifiedOperations: [...task.verifiedOperations ?? [], ...task.operations.map(({ bot, tool, target }) => ({ bot, tool, target }))],
+      ...task, verifiedOperations: [...task.verifiedOperations ?? [], ...task.operations.map(verifiedOperation)],
       operations: [],
     }
     if (task && requestedAction === 'finish') {
@@ -1225,7 +1218,7 @@ export async function apply(ctx: Context, config: Config) {
     }
     const userRow: Extract<Row, { author: 'user' }> = {
       id, author: 'user', text: original, ...(continues ? { continues: true } : {}),
-      ...(requestedAction && !typed?.verified && !uploaded.length && !localPaths.length ? { control: true } : {}),
+      ...(requestedAction && !typed?.verified && !typed?.query && !uploaded.length && !localPaths.length ? { control: true } : {}),
     }
     addRows(parent, [{ ...userRow, ...(uploaded.length ? { documents: [...uploaded] } : {}) }])
     if (task) {
@@ -1371,7 +1364,7 @@ export async function apply(ctx: Context, config: Config) {
         const reply = await runtime.race(() => ask(member, prompt, instructions, true, runtime.signal, async operation => {
           runtime.signal.throwIfAborted()
           if (!task) return
-          if (previousTask?.operations.length && !typed?.verified) throw new Error('本议题有操作结果待核对，请先检查已有结果。')
+          if (previousTask && unresolvedOperations(previousTask).length && !typed?.verified) throw new Error('此前有可能修改外部状态的操作尚未核对。可以继续读取资料和撰写回复；执行新的修改操作前，请核对已有结果。')
           task = saveTask(parent, {
             ...task,
             operations: [...task.operations, { ...operation, rowId: row.id, bot: member.name }],
@@ -1398,7 +1391,7 @@ export async function apply(ctx: Context, config: Config) {
             const operation = task.operations.find(item => item.id === `${sessionId}:${callId}`)
             if (operation) task = saveTask(parent, { ...task,
               operations: task.operations.filter(item => item.id !== operation.id),
-              verifiedOperations: [...task.verifiedOperations ?? [], { bot: operation.bot, tool: operation.tool, target: operation.target }],
+              verifiedOperations: [...task.verifiedOperations ?? [], verifiedOperation(operation)],
             })
           },
           clearDeniedOperation(callId) {
@@ -1459,6 +1452,7 @@ export async function apply(ctx: Context, config: Config) {
       const invitations = new Map<string, number>()
       const timedOut = new Set<string>()
       if (resuming) for (const item of transcript) invitations.set(item.botId, (invitations.get(item.botId) ?? 0) + 1)
+      const continuation = { 最新用户消息: text, 上次主持答复: prior?.result ? moderatorReplyContext(prior.result.text) : undefined }
       const corrections = task ? taskDigest(task, current().rows).user.slice(-6).map(row => row.text) : undefined
       const maxTurns = participants.length === 1 ? 1 : participants.length + 2
       const budget = requestedAction === 'summarize' ? 0 : Math.max(0, maxTurns - (resuming ? transcript.length : 0))
@@ -1478,7 +1472,7 @@ export async function apply(ctx: Context, config: Config) {
         if (eligible.length > 1) eligible = eligible.filter(member => member.id !== last)
         const mayClose = !waiting.length && covered && (distinctReplies >= 2 || uncalled.length === 0)
         const state = {
-          议题: subject,
+          议题: subject, ...continuation,
           ...(task && previousTask ? { 原始目标: task.goal, 用户最近要求: corrections } : {}),
           附件: documents.map(file => file.attachment.name),
           本轮可发言: eligible.map(({ id, name, duty }) => ({ id, name, duty })),
@@ -1520,7 +1514,7 @@ export async function apply(ctx: Context, config: Config) {
         if (task) task = saveTask(parent, { ...task, attempts: [...task.attempts, { rowId, botId: speaker.id, name: speaker.name, question: step.question }] })
         const result = await runMember(speaker,
           { id: rowId, author: 'bot', botId: speaker.id, status: 'working', text: '正在回复…' },
-          JSON.stringify({ 议题: subject, KingBot主持提问: step.question, 已有讨论: transcript.slice(-8).map(item => ({ ...item, text: excerpt(item.text, 450) })), ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
+          JSON.stringify({ 议题: subject, ...continuation, KingBot主持提问: step.question, 已有讨论: transcript.slice(-8).map(item => ({ ...item, text: excerpt(item.text, 450) })), ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
           '你正在参加 KingBot 主持的讨论。根据用户最近明确的要求回答，不要重复已完成的操作。针对已有发言补充、质疑或给出依据。可以点名其他成员。只发一条推进讨论的回复。')
         transcript.push({ botId: speaker.id, name: speaker.name, question: step.question, status: result.status, text: result.text })
         if (result.execution?.outcome === 'host-wait' || result.execution?.outcome === 'model-timeout' ||
@@ -1543,7 +1537,7 @@ export async function apply(ctx: Context, config: Config) {
         task?.operations.length && '仍有工具操作结果待核对。',
       ].filter(Boolean).join(' ')
       const replies = completed.map(item => `**${item.name}**\n\n${item.text}`).join('\n\n')
-      await summarize(JSON.stringify({ 议题: subject, 已有讨论: transcript.slice(-8).map(item => ({ ...item, text: excerpt(item.text, 450) })), ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
+      await summarize(JSON.stringify({ 议题: subject, ...continuation, 已有讨论: transcript.slice(-8).map(item => ({ ...item, text: excerpt(item.text, 450) })), ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
         '请总结你主持的讨论，基于实际发言给出结论、明确决定、关键证据和仍待确认的问题。以用户最新确认或更正为准。将状态为 done 的发言视作已保存原文。只有明确发生生成失败或依据确实缺失时才说明缺口。用简短小标题区分已确认决定、依据和待解决问题。',
         replies ? `KingBot 未能生成汇总。以下是已收到的发言。\n\n${replies}` : '本轮还没有可汇总的有效发言。', gaps, requestedAction === 'summarize' || Boolean(task?.operations.length))
 

@@ -254,3 +254,5 @@ The reset feature was checked through the UI in an isolated profile with synthet
 KingBot private chat uses the native Harness Agent in the root conversation, including streaming, tools, approvals, workspace instructions and context management. Responses use natural language. Bot creation and group creation/messaging are additional tools. Fully specified group requests execute immediately. Missing workspaces produce a pending proposal. Existing private-chat records and group receipts remain accessible in an expandable panel and are supplied as bounded background context.
 
 Run `npm run smoke:native` to check native chat, file reading, Bot and group creation, delivery and memory after restart with the deterministic fixture model.
+
+Group recovery in v0.4.0 binds confirmations to the active topic, includes the previous moderator proposal when continuing, and preserves drafting requests despite pending operations. Reading and discussion can continue while uncertain state-changing operations await verification. Classifier failures report a technical failure and retain progress.

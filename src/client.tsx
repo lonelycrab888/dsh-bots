@@ -424,7 +424,7 @@ function TaskPanel({ group, choose, source, format }: {
     {resumable && <div className="dsh-bots-task-status">
       <p>{task.question ? '等待用户回答' : labels[task.status]} · {task.title} · 已收到 {digest.completed.length} 条发言{task.operations.length ? ` · ${task.operations.length} 项待核对` : ''}</p>
       <div className="dsh-bots-actions">
-        {taskActions.map(action => <button key={action} type="button" disabled={pending || action === 'resume' && !!task.operations.length}
+        {taskActions.map(action => <button key={action} type="button" disabled={pending}
           onClick={() => void submit(task, action)}>{taskActionLabel[action]}</button>)}
       </div>
     </div>}
@@ -441,7 +441,7 @@ function TaskPanel({ group, choose, source, format }: {
         {digest.result && <><dt>已保存汇总</dt><dd><MarkdownReply text={digest.result.text} format={format} /><button type="button" onClick={() => source(digest.result!.id)}>原汇总</button></dd></>}
         {digest.completed.length > 0 && <><dt>发言依据</dt><dd><ul>{digest.completed.map(row => <li key={row.rowId}><button type="button" onClick={() => source(row.rowId)}>{'@' + row.name} · {format(row.question)}</button></li>)}</ul></dd></>}
         {digest.questions.length > 0 && <><dt>待解决问题</dt><dd><ul>{[...new Set(digest.questions)].map(question => <li key={question}>{format(question)}</li>)}</ul></dd></>}
-        {task.operations.length > 0 && <><dt>待核对操作</dt><dd><ul>{task.operations.map(operation => <li key={operation.id}>{'@' + operation.bot} · {operation.tool}{operation.target ? ` · ${operation.target}` : ''}</li>)}</ul><p>核对后可发送「已核对，继续」。</p></dd></>}
+        {task.operations.length > 0 && <><dt>待核对操作</dt><dd><ul>{task.operations.map(operation => <li key={operation.id}>{'@' + operation.bot} · {operation.tool}{operation.target ? ` · ${operation.target}` : ''}</li>)}</ul><p>可继续讨论和撰写回复。执行新的修改操作前，请核对已有结果并发送「已核对，继续」。</p></dd></>}
         {digest.documents.length > 0 && <><dt>附件</dt><dd><ul>{digest.user.flatMap(row => (row.documents ?? []).map((file, index) => <li key={`${row.id}:${index}`}><button type="button" onClick={() => source(row.id)}>{file.attachment.name}</button></li>))}</ul></dd></>}
       </dl>
     </details>

@@ -2,9 +2,13 @@
 import { appendFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createRequire } from 'node:module'
+import { realpathSync } from 'node:fs'
+import { newTask } from '../src/tasks.ts'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 
-export const inject = ['llm', 'web', 'workspaceRegistry', 'tools']
+export const inject = ['llm', 'web', 'workspaceRegistry', 'tools', 'sessionProjections', 'sessionController', 'agents', 'sessions']
 
 const timelineReply = ('审阅员 | 初步观点\n\n' +
   '| 时间 | 资料 |\n| --- | --- |\n| 19:00 | ' + '演练资料 '.repeat(20) + '|\n\n' +
@@ -264,12 +268,28 @@ class Fixture extends LlmAdapter {
       if (latest.includes('P039-SILENT')) duration = 130_000
       if (latest.includes('P039-TOOL') && !toolResults.length) toolCall = { name: 'read', arguments: '{"file_path":"p038-hostwait.txt"}' }
     }
+    if ((moderator || discussion || summarizing) && JSON.parse(latest).议题?.includes('V040-RECOVERY')) {
+      const state = JSON.parse(latest)
+      if (moderator) text = JSON.stringify({ kind: 'speak', botId: state.本轮可发言[0].id, question: '根据上次主持建议及最新要求，直接写出初稿。' })
+      if (discussion) {
+        text = 'V040-DRAFT 已根据现有结果写出立项书初稿。'
+        if (!toolResults.length && ['可以，就按照你说的做', '已核对，继续'].includes(state.最新用户消息)) {
+          toolCall = { name: 'write', arguments: JSON.stringify({ file_path: state.最新用户消息 === '已核对，继续' ? 'v040-verified.txt' : 'v040-blocked.txt', content: 'verified' }) }
+        }
+      }
+      if (summarizing) text = 'V040-RECOVERED ' + state.最新用户消息
+    }
+    if (intentCheck && JSON.parse(latest).用户新消息.includes('V040-INTENT-FAIL')) text = 'invalid classifier output'
     const nativeKing = systemText.includes('你是 KingBot，用户的通用助手')
     if (nativeKing && input.includes('V040-')) {
       const call = (name, args) => ({ name, arguments: JSON.stringify(args) })
       const values = toolResults.map(result => result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
       text = 'V040-ANSWER 自然语言回答 **保留 Markdown**。'
-      if (input.includes('V040-CREATE-BOT')) {
+      if (input.includes('V040-SEED-RECOVERY')) {
+        if (!toolResults.length) toolCall = call('list_existing_groups', {})
+        else if (toolResults.length === 1) toolCall = call('fixture_seed_recovery', { groupId: JSON.parse(values[0]).groups[0].id })
+        else text = 'V040-SEEDED-DONE'
+      } else if (input.includes('V040-CREATE-BOT')) {
         if (!toolResults.length) toolCall = call('create_bots', { bots: [{ name: '版本助手', duty: '验证新版本', evidence: input }] })
         else text = 'V040-BOT-DONE ' + values.join('\n')
       } else if (input.includes('V040-CREATE-GROUP')) {
@@ -339,6 +359,33 @@ class Fixture extends LlmAdapter {
 }
 
 export async function apply(ctx) {
+  // Session record writers must come from the running host's Session implementation.
+  const hostRequire = createRequire(realpathSync(process.argv[1]))
+  const { SessionId, appendPluginRecord } = await import(hostRequire.resolve('@deepseek-ai/dsh-session'))
+  ctx.tools.register(defineTool({
+    name: 'fixture_seed_recovery', description: 'Isolated smoke fixture only.',
+    parameters: { groupId: { type: 'string', required: true } },
+    output: { schema: { type: 'string' }, render: (_, text) => [{ type: 'text', text }] },
+    async execute({ groupId }) {
+      const resolved = await ctx.sessionController.resolveAgent(SessionId(groupId))
+      if ('error' in resolved) throw resolved.error
+      const agent = resolved.agent
+      const state = ctx.sessionProjections.stateOf(agent.session, 'dshBots')
+      if (!state.group || state.group.mode === 'king') throw new Error('Recovery fixture requires a group')
+      for (const [index, goal] of ['立项书', '竞争工作 baseline', 'V040-RECOVERY 重新安排调研'].entries()) {
+        const task = { ...newTask('v040-task-' + index, goal), status: 'paused', sourceRows: index === 2 ? ['v040-goal'] : [] }
+        if (index === 2) task.operations = ['read', 'write'].map(tool => ({ id: 'v040-op-' + tool, rowId: 'v040-prior', bot: '版本助手', tool }))
+        appendPluginRecord(agent.session, 'plugin:dsh-bots/task', { task, active: index === 2 })
+      }
+      appendPluginRecord(agent.session, 'plugin:dsh-bots/rows', [
+        { id: 'v040-goal', author: 'user', text: 'V040-RECOVERY 重新安排调研' },
+        { id: 'v040-proposal', author: 'bot', botId: 'coordinator', status: 'done', taskId: 'v040-task-2', resultKind: 'partial', text: '下一步我可以先把「1. 进展」成文，作为立项书开篇。要不要我现在就出这一段初稿，再按成员分工派后续章节？' },
+        { id: 'v040-seeded', author: 'notice', text: 'V040-SEEDED' },
+      ])
+      await ctx.sessions.flush(agent.session)
+      return 'V040-SEEDED'
+    },
+  }))
   const testWorkspace = process.env.DSH_BOTS_RECOVERY_WORKSPACE
   if (testWorkspace) await ctx.workspaceRegistry.create(testWorkspace, 'P1验收工作区')
   ctx.on('tools/pre-execute', async (execution, next) => {

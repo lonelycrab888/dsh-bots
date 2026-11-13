@@ -1,7 +1,7 @@
 import { excerpt } from './group-context.ts'
 import { z } from 'zod'
 import type { Group, Row } from './bots.ts'
-import { continuesDiscussion } from './discussion.ts'
+import { continuesDiscussion, coordinatorMessage, followsCurrentDiscussion } from './discussion.ts'
 
 export const taskActions = ['resume', 'summarize', 'finish'] as const
 export type TaskAction = typeof taskActions[number]
@@ -43,7 +43,7 @@ export function newTask(id: string, goal: string, origin?: string, title?: strin
 }
 
 export function taskControl(text: string): { action: TaskAction; query: string; verified?: boolean } | undefined {
-  const value = text.normalize('NFKC').trim().replace(/[。.!！]+$/u, '')
+  const value = coordinatorMessage(text).replace(/[。.!！]+$/u, '')
   const checked = /^(?:已核对|已确认操作结果|结果已核对)[，,。\s]*(?:请)?继续(?:讨论|任务)?\s*(.*)$/u.exec(value)
   if (checked) return { action: 'resume', query: checked[1], verified: true }
   const summary = /^(?:请)?(?:汇总已有结果|总结现有结果|先汇总|总结当前进展|summarize progress)(?:[，,:：\s]*(.*))?$/iu.exec(value)
@@ -51,7 +51,7 @@ export function taskControl(text: string): { action: TaskAction; query: string; 
   const finish = /^(?:请)?(?:结束(?:这个|当前|本轮)?任务|到这里就结束任务|end (?:the )?task)(?:[，,:：\s]*(.*))?$/iu.exec(value)
   if (finish) return { action: 'finish', query: finish[1] ?? '' }
   const resume = /^(?:请)?(?:继续(?:讨论|推进|处理)?|接着讨论|恢复讨论|resume)(?:[，,:：\s]*(.*))?$/iu.exec(value)
-  if (resume && !/^(?:分析|核对|读取|检查|解释|说|讲)/u.test(resume[1] ?? '')) return { action: 'resume', query: resume[1] ?? '' }
+  if (resume && continuesDiscussion(value, true) && !/^(?:分析|核对|读取|检查|解释|说|讲)/u.test(resume[1] ?? '')) return { action: 'resume', query: resume[1] ?? '' }
 }
 
 function grams(text: string): Set<string> {
@@ -69,11 +69,15 @@ export function findTask(group: Group, text: string, explicit = false): Discussi
   const query = text.trim().replace(/^(?:@[\p{L}\p{N}_-]+[\s，,:：]+)+/u, '')
   if (!query) {
     if (!explicit) return
+    if (active) return active
     const unfinished = tasks.filter(task => task.status !== 'complete')
     if (unfinished.length === 1) return unfinished[0]
     if (unfinished.length > 1 || tasks.length > 1) return 'ambiguous'
     return tasks[0]
   }
+  const exact = tasks.find(task => task.id === query || task.title === query || task.goal === query)
+  if (exact) return exact
+  if (active && (followsCurrentDiscussion(query) || explicit && /^(?:组织|推进|处理)[\s\S]*(?:当前|现有结果|开始时|原议题)/u.test(query))) return active
   const older = /昨天|前天|yesterday/iu.test(query)
   const previous = /刚才|上一轮|前一轮|本轮|当前|这个|this discussion/iu.test(query)
   const correction = /^(?:请)?(?:更正|纠正|补充约束|确认(?:决定|采用)|我确认)/u.test(query)
@@ -112,9 +116,19 @@ export function taskDigest(task: DiscussionTask, rows: readonly Row[]) {
     const row = byId.get(attempt.rowId)
     return row?.author === 'bot' && row.status === 'done' ? [{ ...attempt, text: row.text }] : []
   })
-  const user = task.sourceRows.flatMap(id => {
-    const row = byId.get(id)
-    return row?.author === 'user' ? [row] : []
+  // Before v0.4, the verification gate saved corrections only on the timeline.
+  // Recover those exact rejected messages when the preceding task row identifies their owner.
+  const sources = new Set(task.sourceRows)
+  let owner: string | undefined
+  for (const row of rows) {
+    if (sources.has(row.id)) owner = task.id
+    if (row.author === 'bot' && row.taskId) owner = row.taskId
+    if (owner !== task.id || row.author !== 'user') continue
+    const reply = byId.get(`${row.id}:verify`)
+    if (reply?.author === 'bot' && reply.text.startsWith('还有操作结果待核对。')) sources.add(row.id)
+  }
+  const user = rows.filter(row => sources.has(row.id)).flatMap(row => {
+    return row.author === 'user' ? [row] : []
   })
   const pending = task.attempts.filter(attempt => !completed.some(item => item.rowId === attempt.rowId))
   const result = rows.findLast((row): row is Extract<Row, { author: 'bot' }> =>
@@ -154,4 +168,13 @@ export function resultRowId(taskId: string, resultId: string) {
 const readOnlyTools = new Set(['read', 'read_image', 'glob', 'grep', 'ls', 'skill', 'web_search', 'web_fetch', 'read_uploaded_document', 'read_group_history'])
 export function operationMayChangeState(name: string) {
   return !readOnlyTools.has(name)
+}
+
+/** Older versions could retain read-only tool calls after interruption. */
+export function unresolvedOperations(task: DiscussionTask) {
+  return task.operations.filter(operation => operationMayChangeState(operation.tool))
+}
+
+export function verifiedOperation({ bot, tool, target }: TaskOperation) {
+  return { bot, tool, ...(target !== undefined ? { target } : {}) }
 }
