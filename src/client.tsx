@@ -619,7 +619,7 @@ export async function apply(ctx: ClientContext) {
     async read() {
       const result = await ctx.remote.pluginManager.listBundles()
       if (!result.ok) throw new Error(result.error.message)
-      return result.value.some(bundle => bundle.name === 'dsh-bots' && bundle.enabled)
+      return result.value.some(bundle => bundle.name === 'roundtable-bots' && bundle.enabled)
     },
     subscribe(refresh) {
       const off = ctx.remote.$on('plugin-manager/changed', refresh)

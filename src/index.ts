@@ -51,7 +51,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-export const name = 'dsh-bots'
+export const name = 'roundtable-bots'
 export const inject = ['agents', 'commands', 'sessionProjections', 'sessions', 'sessionPersistence', 'systemPrompt', 'tools', 'settings', 'typert', 'workspaceRegistry']
 
 interface MemberHooks {

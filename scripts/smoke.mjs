@@ -9,12 +9,13 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { constants as zlibConstants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 
 const root = new URL('../', import.meta.url)
-const { engines } = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+const { engines, name: packageName } = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 const upgradeFrom = process.env.DSH_BOTS_UPGRADE_FROM
-const oldVersion = upgradeFrom && JSON.parse(execFileSync('tar', ['-xOf', resolve(upgradeFrom), 'package/package.json'], { encoding: 'utf8' })).version
-const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4', '0.3.5', '0.3.6', '0.3.7'].includes(oldVersion)
+const oldPackage = upgradeFrom && JSON.parse(execFileSync('tar', ['-xOf', resolve(upgradeFrom), 'package/package.json'], { encoding: 'utf8' }))
+const oldVersion = oldPackage && oldPackage.version
+const legacyRouting = !!oldVersion && !['0.2.2', '0.3.1', '0.3.2', '0.3.3', '0.3.4', '0.3.5', '0.3.6', '0.3.7', '0.3.8', '0.3.9', '0.3.10'].includes(oldVersion)
 const oldRoutesThroughKing = legacyRouting || ['0.2.2', '0.3.1', '0.3.2'].includes(oldVersion)
-const oldMentions = !!oldVersion && !['0.3.6', '0.3.7'].includes(oldVersion)
+const oldMentions = !!oldVersion && !['0.3.6', '0.3.7', '0.3.8', '0.3.9', '0.3.10'].includes(oldVersion)
 const dir = await mkdtemp(join(tmpdir(), 'dsh-bots-smoke-'))
 const env = { ...process.env, DSH_HOME: dir }
 const session = `dsh-bots-${process.pid}`
@@ -425,6 +426,12 @@ try {
     if (oldRoutesThroughKing) assert.equal(beforeRestart[0].speaker, previous.king.title)
     assert.match(previous.king.title, /^(Bots King|KingBot)$/)
     run('dsh', ['plugin', '--profile', 'web', 'add', join(dir, archive)])
+    if (oldPackage.name !== packageName) {
+      run('dsh', ['plugin', '--profile', 'web', 'remove', oldPackage.name])
+      const profilePatch = join(dir, 'profiles', 'web', 'cordis.patch.yml')
+      const saved = await readFile(profilePatch, 'utf8')
+      await writeFile(profilePatch, saved.replace(/(^- id: dsh-bots\n  name: )dsh-bots$/mu, '$1' + packageName))
+    }
   }
 
   browser('goto', await startHost())

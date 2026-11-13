@@ -4,7 +4,7 @@
 
 > **Bring Bots with different responsibilities into one conversation. Let KingBot moderate the discussion and summarize the results.**
 
-`dsh-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
+`roundtable-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
 
 **DeepSeek Harness `0.2.2-rc.1` and `0.2.2-rc.2`** · Supports Desktop and Web
 
@@ -32,9 +32,14 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `dsh-bots-0.3.10.tgz`. [v0.3.10 release](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.10)
+Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `roundtable-bots-0.3.11.tgz`. [v0.3.11 release](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.11)
 
-The repository is now `roundtable-bots`, and the plugin package is still named `dsh-bots`. To upgrade, quit Harness, install from the new address below in the same profile, then reopen Harness. The plugin keeps using the existing Bot configuration, memory database, and conversation history.
+The plugin appears as `roundtable-bots` in the installed list. To upgrade from the old `dsh-bots` package, quit Harness and switch packages in the same profile.
+
+1. Back up the profile's `cordis.patch.yml`. The default desktop profile stores it at `~/.dsh/profiles/desktop/cordis.patch.yml`.
+2. Install `roundtable-bots` with the CLI commands below, then run `dsh plugin --profile desktop remove dsh-bots`. For Desktop, use the bundled CLI path shown below. For Web, use the `web` profile.
+3. Find the `id: dsh-bots` entry in the backup and current configuration. Change its `name: dsh-bots` to `name: roundtable-bots` and keep the original `id`, `config`, and other fields. If the entry has no `name`, leave it as is.
+4. Reopen Harness. The new package uses the existing workspace memory and the conversation history in the same profile.
 
 ### Desktop
 
@@ -50,13 +55,13 @@ git+https://github.com/lonelycrab888/roundtable-bots.git#main
 
 1. Enable **Custom plugin indexes** under **Plugins → Installed → Experimental plugins**.
 2. Open **Discover**. If an index is already configured, select **Manage index sources…** from the index menu. For a first index, select **Add index source**.
-3. Paste the URL below and select **Add**. Close the dialog and open **Bots Group Chat** in the **dsh-bots** index to see the recommended version.
+3. Paste the URL below and select **Add**. Close the dialog and open **Bots Group Chat** in the **roundtable-bots** index to see the recommended version.
 
 ```text
 https://raw.githubusercontent.com/lonelycrab888/roundtable-bots/main/market-index.json
 ```
 
-Enable **dsh-bots** in the Plugins panel after installation. If **Bots** does not appear in the sidebar, finish any running tasks, fully quit the desktop app, and reopen it.
+Enable **roundtable-bots** in the Plugins panel after installation. If **Bots** does not appear in the sidebar, finish any running tasks, fully quit the desktop app, and reopen it.
 
 The Git URL locates the plugin; the npm registry supplies its dependencies. If GitHub returns a 404 for an npm dependency during installation, check that the repository URL was not entered as the installation source.
 
@@ -81,7 +86,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=dsh-bots-0.3.10.tgz` in the folder containing it and then run the relevant install command.
+In the same terminal, add the generated package to the appropriate profile. If you downloaded the release package, run `package_file=roundtable-bots-0.3.11.tgz` in the folder containing it and then run the relevant install command.
 
 ```sh
 # Desktop (default macOS application path)
@@ -213,7 +218,7 @@ Removing an entry stops future shared-memory injection but does not delete the o
 Disable or uninstall the plugin in the desktop **Plugins** panel. For Web CLI:
 
 ```sh
-dsh plugin --profile web remove dsh-bots
+dsh plugin --profile web remove roundtable-bots
 ```
 
 Disabling or uninstalling removes the Bots entry, group chat overlay, styles, and listeners, restoring the native conversation layout. The plugin does not overwrite global API, model, or Agent Loop configuration. The dedicated Bots workspace is also removed from the sidebar; its visible sessions are temporarily archived to prevent them from appearing as ungrouped sessions. Re-enabling or reinstalling restores the workspace and its previously visible sessions. Previously archived sessions stay archived. Workspace files, King memory, and conversation history are preserved.

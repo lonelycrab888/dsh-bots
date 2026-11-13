@@ -1,10 +1,10 @@
-# Bots 群聊 · dsh-bots
+# Bots 群聊 · roundtable-bots
 
 **简体中文** · [English](README.en.md)
 
 > **把不同职责的 Bot 拉进同一个对话，让 KingBot 主持讨论、汇总结果。**
 
-`dsh-bots` 为 DeepSeek Harness 添加自定义 Bot 和群聊模式。你可以给成员命名、定义职责、指定模型与思考强度，在原生输入框中描述任务或 `@` 指定成员，并在同一条时间线上查看各 Bot 的署名回复。
+`roundtable-bots` 为 DeepSeek Harness 添加自定义 Bot 和群聊模式。你可以给成员命名、定义职责、指定模型与思考强度，在原生输入框中描述任务或 `@` 指定成员，并在同一条时间线上查看各 Bot 的署名回复。
 
 **适用宿主 DeepSeek Harness `0.2.2-rc.1` 与 `0.2.2-rc.2`** · 支持桌面端与 Web
 
@@ -32,9 +32,14 @@
 
 ## 安装
 
-先在 Harness 的标准 API 配置中配置可用模型。插件直接使用宿主模型配置。需要本地安装包时，可下载 `dsh-bots-0.3.10.tgz`。 [v0.3.10 发布页](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.10)
+先在 Harness 的标准 API 配置中配置可用模型。插件直接使用宿主模型配置。需要本地安装包时，可下载 `roundtable-bots-0.3.11.tgz`。 [v0.3.11 发布页](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.3.11)
 
-仓库已更名为 `roundtable-bots`，插件包名仍是 `dsh-bots`。升级时先退出宿主，使用下方新地址在原 profile 覆盖安装，然后重新打开。已有 Bot 配置、记忆库和聊天历史沿用原存储。
+插件在已安装列表中显示为 `roundtable-bots`。从旧包 `dsh-bots` 升级时，请先退出宿主，在同一 profile 中切换包。
+
+1. 备份该 profile 的 `cordis.patch.yml`。默认桌面 profile 的文件在 `~/.dsh/profiles/desktop/cordis.patch.yml`。
+2. 用下文的 CLI 命令安装 `roundtable-bots`，然后运行 `dsh plugin --profile desktop remove dsh-bots`。桌面端使用下文所列的应用内 CLI 路径，Web 则将 profile 改为 `web`。
+3. 在备份和当前配置中找到 `id: dsh-bots` 条目，将其 `name: dsh-bots` 改为 `name: roundtable-bots`，保留原 `id`、`config` 和其他字段。如果条目没有 `name`，保留现有配置即可。
+4. 重开宿主。新包沿用同一工作区中的记忆库和同一 profile 中的聊天记录。
 
 ### 桌面端
 
@@ -50,13 +55,13 @@ git+https://github.com/lonelycrab888/roundtable-bots.git#main
 
 1. 在 **插件 → 已安装 → 实验性插件** 启用 **自定义插件索引**。
 2. 打开 **发现**。已有索引时，在索引下拉菜单中选择 **管理索引源…**。首次配置时，点击 **添加索引源**。
-3. 粘贴下面的 URL，点击 **添加**。关闭对话框后，在 **dsh-bots** 索引中打开 **Bots 群聊** 查看推荐版本。
+3. 粘贴下面的 URL，点击 **添加**。关闭对话框后，在 **roundtable-bots** 索引中打开 **Bots 群聊** 查看推荐版本。
 
 ```text
 https://raw.githubusercontent.com/lonelycrab888/roundtable-bots/main/market-index.json
 ```
 
-安装后在插件页启用 **dsh-bots**。若侧栏没有出现 **Bots**，请先结束正在运行的任务，再完整退出并重新打开桌面端。
+安装后在插件页启用 **roundtable-bots**。若侧栏没有出现 **Bots**，请先结束正在运行的任务，再完整退出并重新打开桌面端。
 
 Git 地址用于获取插件，npm 源用于下载依赖。如果安装日志显示 GitHub 对某个 npm 依赖返回 404，请检查是否误将 GitHub 仓库地址填入了安装源。
 
@@ -81,7 +86,7 @@ npm run build
 package_file="$(npm pack --silent)"
 ```
 
-在同一个终端中，将生成的安装包添加到对应 profile。使用已下载的发布包时，在文件所在目录执行 `package_file=dsh-bots-0.3.10.tgz`，再运行对应的安装命令。
+在同一个终端中，将生成的安装包添加到对应 profile。使用已下载的发布包时，在文件所在目录执行 `package_file=roundtable-bots-0.3.11.tgz`，再运行对应的安装命令。
 
 ```sh
 # 桌面端（macOS 默认安装路径）
@@ -213,7 +218,7 @@ KingBot 的长期记忆保存明确要求、稳定偏好和长期背景，**不�
 桌面端可在 **插件** 页停用或卸载。Web CLI 使用：
 
 ```sh
-dsh plugin --profile web remove dsh-bots
+dsh plugin --profile web remove roundtable-bots
 ```
 
 停用或卸载会清理 Bots 入口、群聊覆盖层、样式和监听，恢复原生对话布局。插件不会覆盖原生 API、模型或 Agent Loop 全局配置。专属 Bots 工作区同时从侧栏移除，其可见会话暂时归档，避免出现在未分组列表；重新启用或重装后恢复工作区和原先可见的会话。原先已归档的会话保持归档。工作区文件、主 Bot 记忆与会话历史不会删除。
