@@ -2,15 +2,22 @@
 
 [简体中文](README.md) · **English**
 
-> **Bring Bots with different responsibilities into one conversation. Let KingBot moderate the discussion and summarize the results.**
+**A general-purpose KingBot conversation, with custom Bots and group chats.**
 
-`roundtable-bots` adds custom Bots and a group chat mode to DeepSeek Harness. Give each member a name, responsibilities, model, and reasoning effort. Describe a task or `@mention` a member in the native message box, then read each Bot's named replies on a shared timeline.
+Chat, write, analyze, search, and work with files in DeepSeek Harness. When a task needs collaboration, ask KingBot to create Bots, set up a group, and send messages. In groups, KingBot selects speakers by responsibility, follows up on existing work, and summarizes the results.
 
-**Requires DeepSeek Harness `>=0.2.2-rc.1`** (tested on rc.1 and rc.2) · Supports Desktop and Web
+**Current version: v0.4.0** · DeepSeek Harness `>=0.2.2-rc.1` (tested on rc.1 and rc.2) · Desktop / Web
+
+[Download package](https://github.com/lonelycrab888/roundtable-bots/releases/download/v0.4.0/roundtable-bots-0.4.0.tgz) · [Release notes](https://github.com/lonelycrab888/roundtable-bots/releases/tag/v0.4.0) · [Installation](#installation) · [Memory](#how-memory-works)
+
+## What's new in v0.4.0
+
+- **Native Agent conversations.** KingBot private chat uses Harness streaming, tools, approvals, workspace instructions, and context management. Bot creation and group operations are additional tools.
+- **Better group continuation.** Accepting the moderator's suggestion includes its previous proposal. Verification acknowledgements select the active topic, and new drafting requests and corrections reach later assignments.
+- **Discuss while verification is pending.** Reading and drafting remain available; new state-changing operations wait for verification. Fixed persistence of verified operations that have no target path.
+- **Clearer failure handling.** Intent-classifier failures preserve progress and report the technical failure. The extra group receipts/history panel has been removed from private chat.
 
 ## How to use it
-
-<!-- Screenshot placeholder 1: Group chat overview showing message bubbles, topic summary, and native message box. Suggested path: assets/group-chat.png. -->
 
 1. **Choose the King workspace.** Open **Bots**, choose an existing folder or enter its absolute path, then enable it. Memory is stored under `.dsh-bots` in that folder.
 2. **Define your members.** Open **Bots** above the workspace list in the sidebar. Create a Bot and enter its name and responsibilities, or ask KingBot to create one in its dedicated conversation. A fresh installation shows only **KingBot**, the coordinator, with no preset child Bots. You create all child Bots yourself; KingBot joins every group automatically.
@@ -32,14 +39,21 @@ The group chat fills the available height. The timeline and topic summary follow
 
 ## Installation
 
-Configure a working model in Harness's standard API settings first. The plugin uses the host's model configuration. To install from a local package, download `roundtable-bots-0.4.0.tgz`. Build the v0.4.0 package with `npm run build && npm pack`
+Configure a working model in Harness's standard API settings first. The plugin uses the host configuration and does not need a separate API key.
 
-The plugin appears as `roundtable-bots` in the installed list. To upgrade from the old `dsh-bots` package, quit Harness and switch packages in the same profile.
+### Install the v0.4.0 release package
 
-1. Back up the profile's `cordis.patch.yml`. The default desktop profile stores it at `~/.dsh/profiles/desktop/cordis.patch.yml`.
-2. Install `roundtable-bots` with the CLI commands below, then run `dsh plugin --profile desktop remove dsh-bots`. For Desktop, use the bundled CLI path shown below. For Web, use the `web` profile.
-3. Find the `id: dsh-bots` entry in the backup and current configuration. Change its `name: dsh-bots` to `name: roundtable-bots` and keep the original `id`, `config`, and other fields. If the entry has no `name`, leave it as is.
-4. Reopen Harness. The new package uses the existing workspace memory and the conversation history in the same profile.
+Download [`roundtable-bots-0.4.0.tgz`](https://github.com/lonelycrab888/roundtable-bots/releases/download/v0.4.0/roundtable-bots-0.4.0.tgz) from GitHub Releases. Quit Harness, open a terminal in the download directory, and run the command for your profile:
+
+```sh
+# macOS Desktop (default application path)
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "$PWD/roundtable-bots-0.4.0.tgz"
+
+# Web
+dsh plugin --profile web add "$PWD/roundtable-bots-0.4.0.tgz"
+```
+
+Reopen Harness and enable **roundtable-bots** in Plugins. Upgrading the same package preserves Bot definitions, conversations, and workspace memory. Desktop and Web use separate profiles and need separate installations.
 
 ### Desktop
 
@@ -74,6 +88,15 @@ dsh web
 
 The local repository includes compiled files in `lib/`; include them when publishing. Desktop and Web use separate profiles. Bot definitions and conversations do not automatically sync between profiles. Memory is shared only when profiles explicitly select the same workspace directory.
 
+### Migrate from the old dsh-bots package
+
+The plugin appears as `roundtable-bots` in the installed list. To upgrade from the old `dsh-bots` package, quit Harness and switch packages in the same profile.
+
+1. Back up the profile's `cordis.patch.yml`. The default desktop profile stores it at `~/.dsh/profiles/desktop/cordis.patch.yml`.
+2. Install `roundtable-bots` with the CLI commands below, then run `dsh plugin --profile desktop remove dsh-bots`. For Desktop, use the bundled CLI path shown below. For Web, use the `web` profile.
+3. Find the `id: dsh-bots` entry in the backup and current configuration. Change its `name: dsh-bots` to `name: roundtable-bots` and keep the original `id`, `config`, and other fields. If the entry has no `name`, leave it as is.
+4. Reopen Harness. The new package uses the existing workspace memory and the conversation history in the same profile.
+
 ### Build a local package
 
 Run these commands from the repository root:
@@ -98,19 +121,15 @@ dsh plugin --profile web add "$PWD/$package_file"
 
 ## Talk to KingBot directly
 
-After choosing a workspace, click **与 KingBot 对话** (Talk to KingBot) to open or resume its single dedicated conversation. It uses the native Harness Agent, conversation history, streaming, tools and approval flow. You can discuss any topic and ask for normal Agent tasks. Bot creation and group creation/messaging are additional tools.
+After choosing a workspace, click **与 KingBot 对话** (Talk to KingBot) to open or resume its single dedicated conversation. It uses the native Harness Agent, conversation history, streaming, tools and approval flow. You can discuss any topic and ask for normal Agent tasks. Bot creation and group creation/messaging are additional tools. Private chat shows the native conversation without an extra receipts/history panel. Earlier private-chat records and group receipts remain available to KingBot as bounded background context.
 
 For example: “Create two child Bots, one for architecture and one for quality assurance. Choose their names and describe their capabilities.” The host validates the proposed definitions and saves them with fresh IDs. Select the new members when creating a group; they do not automatically join existing groups.
-
-<!-- Screenshot placeholder 5: The dedicated King conversation showing a request to create child Bots and the resulting confirmation. Suggested path: assets/king-chat.png. -->
 
 **The dedicated workspace is reserved for KingBot.** New ordinary conversations and group chats are rejected there. Existing group history remains readable, but those groups cannot continue running. Create group chats in other workspaces.
 
 The first setup imports legacy saved memories once. Switching the King workspace selects an independent memory store in the new folder; the old folder's data is preserved and is not merged automatically. Groups in every workspace use the currently selected King workspace's memory store.
 
 ## Bot definitions and model settings
-
-<!-- Screenshot placeholder 2: The Bots page showing KingBot, child Bot cards, the member limit, model selectors, and reasoning effort selectors. Suggested path: assets/bot-library.png. -->
 
 The Bot directory shows avatars and names; click either to open settings. KingBot occupies its own row, and each row of child Bots is centered. Avatars have transparent backgrounds. KingBot uses a dark whale in light mode and a white whale in dark mode, with a gold crown in both. The current account avatar appears in direct chats and group chats. The disabled-Bot filter and reset action sit below the directory. Each child Bot has a name and responsibilities.
 
@@ -175,13 +194,11 @@ In the dedicated conversation, ask KingBot to discuss an earlier topic with a gr
 
 Existing groups remain accessible on later turns and after a restart. Ask KingBot to check progress, forward a literal notice, update requirements, continue the discussion, or start a new task. The host retains confirmed group and workspace identities and asks when a target is ambiguous. Updates stop the old run while preserving context; a new task gets its own goal. Host receipts confirm delivery, and results return to the originating private conversation.
 
-For a pending proposal, provide the missing workspace or revise the members in chat. You can also confirm or cancel it in the receipts panel.
+For a pending proposal, provide the missing workspace or revise the members in chat. Ask KingBot to confirm or cancel it in the conversation.
 
-KingBot adds an **打开群聊** (Open group) button to the original conversation. When the approved group has a task, KingBot moderates the discussion and posts the resulting conclusion there. A group created without a task waits for a message.
+Open the group from its Harness workspace or session search. If it has a task, KingBot moderates the discussion and associates its results with the originating private conversation; ask for progress or conclusions there. A group created without a task waits for a message.
 
 ## How memory works
-
-<!-- Screenshot placeholder 4: KingBot's memory manager showing the memory and automatic-update switches, active entries, and removed entries. Suggested path: assets/king-memory.png. -->
 
 | Data | Where it is saved | Across group chats? |
 | --- | --- | --- |
@@ -191,7 +208,7 @@ KingBot adds an **打开群聊** (Open group) button to the original conversatio
 
 Original group messages and attachment references remain in the host journal. Interrupting execution does not clear that history. Each Bot restores the current task, latest user guidance, source-linked extracts and recent originals for its own group, and can retrieve exact older messages or attachments when needed. Long histories use token-budgeted extraction and retrieval. Extracts are lossy, not full-text model memory; precise values and corrections retain their sources. New tasks do not automatically inherit old constraints. Group working memory is isolated from other groups and is not promoted to KingBot’s personal long-term memory.
 
-Long-term memory stores explicit requests, stable preferences, and lasting background information. **It does not automatically memorize the full text of every past group chat.** When memory and automatic updates are enabled, memories are extracted from the current user message and retain the supporting original text. Child Bot output is not automatically treated as a fact about the user. Only KingBot reads shared memory directly, though it may include relevant information in an assignment.
+Long-term memory is stored at `.dsh-bots/king-memory.sqlite` in the selected workspace and survives restarts. It stores explicit requests, stable preferences, and lasting background information. **It does not automatically memorize the full text of every past group chat.** When memory and automatic updates are enabled, memories are extracted from the current user message and retain the supporting original text. Child Bot output is not automatically treated as a fact about the user. Only KingBot reads shared memory directly, though it may include relevant information in an assignment.
 
 Open **Bots → KingBot → 管理工作区记忆** (Manage workspace memory) to search, browse pages, add, edit, pin, archive, restore, and export entries. You can disable memory entirely or turn off automatic updates separately. With memory and automatic updates enabled, you can say in the dedicated KingBot conversation:
 
@@ -237,22 +254,12 @@ Only selected items are reset. Resetting associations alone preserves memory; se
 
 **Reset cannot be undone through the plugin, but it does not delete original chat logs, exported files, or memory files in other workspace folders.** Selecting all options starts over; removing historical files from disk remains a separate host operation. If the workspace directory was manually deleted, startup clears the invalid association and retains Bot definitions so you can select an existing directory again. The plugin does not silently create a folder.
 
-<!-- Screenshot placeholder 6: Reset panel with three independent choices and the RESET confirmation field. Suggested path: assets/reset-data.png. -->
-
 ## Development and verification
 
 `npm run typecheck` checks types. `npm test` covers configuration validation, member selection, mention routing, task plans, memory, model and effort persistence, and activation cleanup. `npm run build` generates release files.
 
 Automated coverage includes persistence and retrieval beyond 32 memories, reopening the database, revision conflicts, member creation and retired IDs, dedicated workspace restrictions, and workspace recovery after disabling.
 
-`npm run smoke` and `npm run smoke:native` use Chrome, the Playwright CLI and a deterministic model stub in an isolated Web profile to check native conversation continuity, file reads, search, Bot creation, group creation and retry, message delivery, and memory after restart.
+`npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, and intent-classifier failure. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-The reset feature was checked through the UI in an isolated profile with synthetic data, including separate member, memory, and association resets and recovery from a missing workspace directory.
-
-## v0.4.0 private conversations
-
-KingBot private chat uses the native Harness Agent in the root conversation, including streaming, tools, approvals, workspace instructions and context management. Responses use natural language. Bot creation and group creation/messaging are additional tools. Fully specified group requests execute immediately. Missing workspaces produce a pending proposal. Existing private-chat records and group receipts remain accessible in an expandable panel and are supplied as bounded background context.
-
-Run `npm run smoke:native` to check native chat, file reading, Bot and group creation, delivery and memory after restart with the deterministic fixture model.
-
-Group recovery in v0.4.0 binds confirmations to the active topic, includes the previous moderator proposal when continuing, and preserves drafting requests despite pending operations. Reading and discussion can continue while uncertain state-changing operations await verification. Classifier failures report a technical failure and retain progress.
+v0.4.0 passed type checking, 82 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
