@@ -9,8 +9,8 @@
         "zh": "Bots 群聊"
       },
       "description": {
-        "en": "Named Bots and group discussions moderated by KingBot.",
-        "zh": "自定义 Bot 和由 KingBot 主持的群聊讨论。"
+        "en": "A native KingBot Agent with custom Bots and moderated group chats.",
+        "zh": "原生 KingBot Agent 独聊、自定义 Bot 与主持式群聊。"
       },
       "author": "lonelycrab888",
       "homepage": "https://github.com/lonelycrab888/roundtable-bots",
@@ -18,6 +18,18 @@
         "url": "https://github.com/lonelycrab888/roundtable-bots"
       },
       "versions": [
+        {
+          "version": "0.4.0",
+          "publishTimestamp": 1794563197,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
+            "commit": "cb097d52e6f367ed0eb1a5e5ebf21ae25351aee1"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1"
+          }
+        },
         {
           "version": "0.3.12",
           "publishTimestamp": 1794552530,
