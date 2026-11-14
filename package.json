@@ -83,5 +83,9 @@
     "@deepseek-ai/dsh-tools": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.2",
     "@deepseek-ai/schemastery": ">=3.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lonelycrab888/roundtable-bots.git"
   }
 }
