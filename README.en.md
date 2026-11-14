@@ -6,7 +6,9 @@
 
 Chat, write, analyze, search, and work with files in DeepSeek Harness. When a task needs collaboration, ask King Arthur to create Bots, set up a group, and send messages. In groups, King Arthur selects speakers by responsibility, follows up on existing work, and summarizes the results.
 
-**Requires:** DeepSeek Harness `>=0.2.2-rc.1` (tested on rc.1 and rc.2) · Desktop / Web
+**Requires:** DeepSeek Harness `>=0.2.2-rc.2` (current validation baseline: rc.2) · Desktop / Web
+
+The declared range has no upper bound: it accepts later RCs of `0.2.2` and later stable versions. Future host API compatibility still needs validation. Under [npm SemVer rules](https://github.com/npm/node-semver#prerelease-tags), prereleases on a different major/minor/patch tuple, such as `0.3.0-rc.1`, require an explicit range; a lower bound alone cannot admit every future prerelease. Development dependencies remain pinned for reproducible builds.
 
 [Installation](#installation) · [Memory](#how-memory-works)
 
@@ -76,7 +78,7 @@ Open **Plugins → Add Plugin**, select the **official npm registry** as the ins
 git+https://github.com/lonelycrab888/roundtable-bots.git#main
 ```
 
-`#main` installs directly from the main branch. The package supports both `rc.1` and `rc.2`. Use the plugin index below to select the latest release compatible with your Harness version.
+`#main` installs directly from the main branch. The minimum host version is `0.2.2-rc.2`; later versions follow the compatibility range above. Use the plugin index below to select the latest release compatible with your Harness version.
 
 **Choose the latest compatible release from the index**
 

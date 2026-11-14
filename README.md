@@ -6,7 +6,9 @@
 
 在 DeepSeek Harness 中与 King Arthur 聊天、写作、分析、搜索和处理文件；需要协作时，让它创建 Bot、建立群聊并发送消息。群聊中，King Arthur 按成员职责组织发言，结合已有结果继续讨论并汇总结论。
 
-**宿主要求：** DeepSeek Harness `>=0.2.2-rc.1`（已测试 rc.1、rc.2） · 桌面端 / Web
+**宿主要求：** DeepSeek Harness `>=0.2.2-rc.2`（当前验证基线：rc.2） · 桌面端 / Web
+
+兼容声明不设最高版本，接受 `0.2.2-rc.3` 等同版本后续 RC 及更高正式版；未来宿主 API 的实际兼容性仍需验证。按照 [npm SemVer 规则](https://github.com/npm/node-semver#prerelease-tags)，不同主/次/补丁版本的预发布（如 `0.3.0-rc.1`）需要另行声明，不能仅靠一个下限范围全部放行。开发依赖固定在已验证版本，以保持构建可复现。
 
 [安装](#安装) · [长期记忆](#记忆如何保存)
 
@@ -72,7 +74,7 @@ dsh plugin --profile web add "$PWD/roundtable-bots-x.x.x.tgz"
 git+https://github.com/lonelycrab888/roundtable-bots.git#main
 ```
 
-`#main` 固定从主分支安装，该分支同时适配 `rc.1` 与 `rc.2`。需要按宿主版本自动选择最新兼容发行版时，使用下方插件索引。
+`#main` 固定从主分支安装，该分支的最低宿主版本为 `0.2.2-rc.2`，后续版本按上述兼容范围判断。需要按宿主版本自动选择最新兼容发行版时，使用下方插件索引。
 
 **通过索引选择最新兼容发行版**
 
