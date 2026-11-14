@@ -50,6 +50,11 @@ test('streamed reader rejects corrupt sequences and observes cancellation',async
     assert.deepEqual((await readGroupLog(path,seeded,new AbortController().signal)).group?.rows.map(row=>row.id),['own-row'])
     writeFileSync(path,inherited.slice(0,3).map(row=>JSON.stringify(row)+'\n').join(''))
     await assert.rejects(readGroupLog(path,seeded,new AbortController().signal),/继承边界/)
+    const {HistoryReadGuard}=await import('../src/history-read-guard.ts')
+    const guard=new HistoryReadGuard(()=>{})
+    assert.equal(await guard.read('broken','r1',new AbortController().signal,()=>readGroupLog(path,seeded,new AbortController().signal)),undefined)
+    assert.equal(guard.incomplete,true)
+    assert.equal(await guard.read('current','r1',new AbortController().signal,async()=>'normal Agent reply'),'normal Agent reply')
   }finally{rmSync(root,{recursive:true,force:true})}
 })
 
@@ -117,4 +122,46 @@ test('SQLite recall indexes long tails, pages Unicode originals and persists imp
     store.markImported('g','rev1');store.close();store=new SharedGroupMemory(root)
     assert(store.imported('g','rev1'));assert(!store.imported('g','rev2'))
   }finally{store.close();rmSync(root,{recursive:true,force:true})}
+})
+
+test('nested forks discard all ancestor projections at the final inherited boundary',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'dsh-fork-'))
+  const seeded={...header,isSeeded:true}
+  try {
+    const records=[seeded,event('session/end-seed',{inherited:true},0),event('plugin:dsh-bots/members',[member],1),
+      event('plugin:dsh-bots/rows',[{id:'ancestor',author:'user',text:'ancestor private context'}],2),
+      event('session/title',{title:'ancestor title'},3),event('session/end-seed',{inherited:true},4),
+      event('plugin:dsh-bots/members',[member],5),event('plugin:dsh-bots/rows',[{id:'own',author:'user',text:'own public context'}],6)]
+    for(const compressed of [false,true]) {
+      const path=join(root,compressed?'session.v4.jsonl.zstd':'session.v4.jsonl')
+      const text=records.map(row=>JSON.stringify(row)+'\n').join('')
+      writeFileSync(path,compressed?zstdCompressSync(text):text)
+      const result=await readGroupLog(path,seeded,new AbortController().signal)
+      assert.deepEqual(result.group?.rows.map(row=>row.id),['own'])
+      assert.equal(result.title,undefined)
+    }
+  }finally{rmSync(root,{recursive:true,force:true})}
+})
+
+test('bad historical sources do not block reset-era conversations, retry on change, and never swallow cancellation',async()=>{
+  const {HistoryReadGuard}=await import('../src/history-read-guard.ts')
+  let now=0,reads=0
+  const warnings:string[]=[]
+  const guard=new HistoryReadGuard(id=>warnings.push(id),()=>now)
+  const signal=new AbortController().signal
+  const broken=async()=>{reads++;throw new Error('群聊日志缺少继承边界。')}
+  assert.equal(await guard.read('old','r1',signal,broken),undefined)
+  assert.equal(await guard.read('old','r1',signal,broken),undefined)
+  assert.equal(reads,1)
+  assert.equal(await guard.read('healthy','r1',signal,async()=>'current group'),'current group')
+  assert.equal(guard.incomplete,true)
+  assert.equal(await guard.read('old','r2',signal,async()=>'repaired group'),'repaired group')
+  assert.equal(guard.incomplete,false)
+  await guard.read('old','r3',signal,broken)
+  now=30_001
+  assert.equal(await guard.read('old','r3',signal,async()=>'flushed'),'flushed')
+  const cancel=new AbortController()
+  await assert.rejects(guard.read('cancel','r1',cancel.signal,async()=>{cancel.abort();throw cancel.signal.reason}),/abort/i)
+  assert.equal(guard.incomplete,false)
+  assert.deepEqual(warnings,['old','old'])
 })

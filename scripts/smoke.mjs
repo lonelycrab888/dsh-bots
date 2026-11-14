@@ -257,6 +257,50 @@ async function exerciseHistoryPages() {
   console.log('Verified bounded live/history pages, historical attachment download and inactive group recall after restart.')
 }
 
+async function exerciseResetWithUnreadableHistory() {
+  await stopHost()
+  const entries=await readdir(join(dir,'sessions'),{recursive:true})
+  let brokenPath,original
+  for(const entry of entries.filter(name=>name.endsWith('session.v4.jsonl.zstd'))) {
+    const path=join(dir,'sessions',entry),bytes=await readFile(path)
+    const text=zstdDecompressSync(bytes).toString('utf8')
+    if(!text.includes('v043-history-159'))continue
+    const end=text.indexOf('\n'),header=JSON.parse(text.slice(0,end))
+    assert.equal(header.isSeeded,false)
+    header.isSeeded=true
+    brokenPath=path;original=bytes
+    await writeFile(path,zstdCompressSync(JSON.stringify(header)+text.slice(end)))
+    break
+  }
+  assert.ok(brokenPath,'Missing isolated old group fixture')
+  browser('goto',await startHost())
+  browser('run-code',(async page=>{
+    const button=name=>page.getByRole('button',{name,exact:true})
+    await button('Roundtable').click()
+    await button('重置 Bots 数据').click()
+    for(const name of ['重置Bots 成员','重置主 Bot 记忆','重置旧会话关联'])await page.getByRole('checkbox',{name,exact:true}).check()
+    await page.getByRole('textbox',{name:'重置确认文字'}).fill('RESET')
+    await button('确认重置所选数据').click()
+    await page.getByText('所选数据已重置，请重新选择工作区。',{exact:true}).waitFor()
+    await button('King Arthur').click()
+    await page.getByRole('textbox',{name:'King Arthur 工作区目录'}).fill(WORKSPACE)
+    await button('启用工作区').click()
+    await button('与 King Arthur 对话').click()
+    const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
+    await editor.fill('V040-CHAT 全部重置后正常对话');await button('发送消息').click()
+    await page.getByText('V040-ANSWER 自然语言回答',{exact:false}).last().waitFor()
+    await editor.fill('V043-RESET-RECALL 全部重置后检查共享记忆');await button('发送消息').click()
+    await page.getByText('V043-RESET-RECALLED',{exact:false}).last().waitFor()
+  }).toString().replace('WORKSPACE',JSON.stringify(docs)))
+  const recall=(await requests()).findLast(call=>call.nativeKing&&call.input==='V043-RESET-RECALL 全部重置后检查共享记忆'&&call.toolResults?.length)
+  assert.ok(recall)
+  const returned=recall.toolResults.flatMap(content=>content.filter(block=>block.type==='text').map(block=>block.text)).join('')
+  assert.deepEqual(JSON.parse(returned),[],'Reset must not import old-epoch group memories')
+  await stopHost()
+  await writeFile(brokenPath,original)
+  console.log('Verified full reset and normal main-Agent replies with an unreadable inherited log; old-epoch memories remain excluded.')
+}
+
 async function exerciseExistingGroups() {
   await stopHost()
   browser('goto', await startHost())
@@ -678,6 +722,7 @@ try {
     await exerciseNativeBots()
     await exerciseGroupDownloads(defaultWorkspace, documentPath)
     await exerciseHistoryPages()
+    await exerciseResetWithUnreadableHistory()
   } else {
   browser('run-code', (async page => {
     const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE

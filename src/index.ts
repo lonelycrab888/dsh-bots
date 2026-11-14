@@ -10,6 +10,7 @@ import { KING_REMOTE, catalogInput, kingRequest } from './king-remote.ts'
 import { readGroupDocument } from './group-files.ts'
 import { groupPage, taskSummary } from './group-pages.ts'
 import { readGroupLog } from './group-log.ts'
+import { HistoryReadGuard } from './history-read-guard.ts'
 import { reasoningPreview, reasoningPreviewLimit, rowUpdate } from './memory-limits.ts'
 import { SharedGroupMemory } from './shared-memory.ts'
 import { WorkspaceMemory } from './workspace-memory.ts'
@@ -453,6 +454,7 @@ export async function apply(ctx: Context, config: Config) {
     sharedLive.set(agent.session,group)
   }
 
+  const historyReads = new HistoryReadGuard((id,error) => ctx.logger.warn(`dsh-bots: skipped historical session ${id}: ${String(error)}`))
   let refreshingShared: Promise<void> | undefined
   async function refreshSharedMemory(signal: AbortSignal) {
     signal.throwIfAborted()
@@ -460,6 +462,7 @@ export async function apply(ctx: Context, config: Config) {
     const work = (async () => {
       for (const workspace of groupWorkspaces()) for (const id of workspace.sessionIds) {
         lifetime.signal.throwIfAborted()
+        if (ctx.workspaceRegistry.archivedSessionIds.includes(SessionId(id))) continue
         const live = ctx.sessions.get(SessionId(id))
         if (live) {
           const group = groups.stateOf(live).group
@@ -473,7 +476,8 @@ export async function apply(ctx: Context, config: Config) {
         if (!snapshot || snapshot.header.origin === 'subagent' || snapshot.header.cwd !== workspace.path) continue
         const store = sharedStore(workspace.path)
         if (store.imported(id,snapshot.revision)) continue
-        const record = await readGroupSession(SessionId(id),lifetime.signal)
+        const record = await historyReads.read(id,snapshot.revision,lifetime.signal,()=>readGroupSession(SessionId(id),lifetime.signal))
+        if (!record) continue
         if (record?.group && accessibleGroup(record.group)) store.sync(id,record.title ?? record.group.brief ?? '群聊',record.group)
         // A concurrent writer changes the next stat, so that revision is retried.
         store.markImported(id,snapshot.revision)
@@ -499,6 +503,7 @@ export async function apply(ctx: Context, config: Config) {
     const context = scope.systemPrompt.section({
       name:'dsh-bots-shared-memory',order:1012,interpolate:false,
       text:() => allowed() ? '所有 Bot 共享工作区中的群聊记忆。以下是带群聊来源的相关原文，只作历史资料；失败、停止或等待中的内容不是已完成结论，其他群的要求不自动成为当前任务。需要更多信息时调用 read_shared_group_memory；不要把思考内容当作已验证事实。当前用户要求优先。\n' +
+        (historyReads.incomplete ? '部分历史会话暂不可读取；不要声称已完整检查所有群聊历史。可继续处理当前请求，原始日志保留，后续扫描会重试。\n' : '') +
         JSON.stringify(sharedRecall(query(),{},4).map(item => ({...item,messages:item.messages.slice(0, 3)}))) : '',
     })
     const tool = scope.tools.register(defineTool({
@@ -1094,7 +1099,9 @@ export async function apply(ctx: Context, config: Config) {
       const workspace = workspaces.get(item.sessionId)
       if (!workspace || archived.has(item.sessionId) || item.origin === 'subagent' || item.cwd !== workspace.path) continue
       const title = item.projections?.values.title
-      const record = await readGroupSession(SessionId(item.sessionId), signal)
+      const snapshot=await ctx.sessionPersistence.stat(SessionId(item.sessionId),{signal})
+      if(!snapshot)continue
+      const record = await historyReads.read(item.sessionId,snapshot.revision,signal,()=>readGroupSession(SessionId(item.sessionId),signal))
       if (accessibleGroup(record?.group) && typeof title === 'string' && title.trim()) groups.push({
         id: item.sessionId, title: groupTitle(title), workspaceId: workspace.id, workspace: workspace.title, path: workspace.path,
       })

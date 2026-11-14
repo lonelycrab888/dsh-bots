@@ -13,7 +13,7 @@ export async function readGroupLog(path: string, header: SessionHeader, signal: 
   const cancel = () => decoded.destroy(signal.reason instanceof Error ? signal.reason : new Error('已取消读取'))
   signal.addEventListener('abort', cancel, { once: true })
   let state = projection.init(header, 0 as never), title: string | undefined
-  let first = true, seq = 0, length = 0, inherited = Boolean(header.isSeeded)
+  let first = true, seq = 0, length = 0, inherited = Boolean(header.isSeeded), foundBoundary = false
   let pieces: Buffer[] = []
   try {
     for await (const chunk of decoded) {
@@ -34,12 +34,22 @@ export async function readGroupLog(path: string, header: SessionHeader, signal: 
           continue
         }
         if (!value || value.seq !== seq++ || typeof value.type !== 'string') throw new Error('群聊日志序列不完整；原日志已保留。')
-        if(inherited){if(value.type==='session/end-seed'&&value.data?.inherited===true)inherited=false;continue}
+        if (value.type === 'session/end-seed' && value.data?.inherited === true) {
+          if (!header.isSeeded) throw new Error('群聊日志继承标记与头部不一致。')
+          // A fork can contain markers copied from its ancestors. The host uses
+          // the LAST inherited marker; discard every preceding projection.
+          state = projection.init(header, 0 as never)
+          title = undefined
+          foundBoundary = true
+          inherited = false
+          continue
+        }
+        if (inherited) continue
         if (value.type === 'session/title' && typeof value.data?.title === 'string') title = value.data.title
         if (value.type.startsWith('plugin:dsh-bots/')) state = projection.apply(state, value as SessionEvent)
       }
     }
-    if(inherited)throw new Error('群聊日志缺少继承边界。')
+    if(header.isSeeded && !foundBoundary)throw new Error('群聊日志缺少继承边界。')
     if (first) throw new Error('群聊日志缺少头部。')
     // A last non-newline-terminated row is an uncommitted physical tail.
     return { cwd: header.cwd, origin: header.origin, group: state.group, title }

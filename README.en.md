@@ -255,6 +255,8 @@ Cold group journals are streamed from current JSONL / Zstd storage instead of lo
 
 The group timeline displays the latest 80 messages. Use **更早记录** for an older page and **返回最新** to resume live messages. Downloads remain available on older pages. Topic summaries fetch bounded previews from the full history, so completed counts remain correct even when evidence is outside the current page. Reasoning is stored as increments with a 32768-character group preview per reply; the host retains the complete model process in the member's native session.
 
+Unreadable or incomplete historical logs are skipped individually, so a missing inherited boundary cannot abort a new main-Agent conversation after a full reset. Original files remain intact; changed revisions retry immediately, while unchanged failures wait at least 30 seconds between scans. Archived sessions are excluded, nested forks use their final inherited boundary, and old reset epochs remain isolated.
+
 Upgrade the same package and restart Harness. Existing memory databases and original journals are retained; the first lookup builds missing indexes. These changes do not cap all host memory use or rewrite existing native session logs. If the host still runs out of memory while loading native conversations, a new diagnostic log is needed to locate that remaining cause.
 
 ## Current scope
@@ -298,6 +300,6 @@ Automated coverage includes persistence and retrieval beyond 32 memories, reopen
 
 `npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks downloaded bytes and filenames, uploaded files after restart, manual New Session blocking in the King workspace, automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-The current implementation passed type checking, 102 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+The current implementation passed type checking, 104 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
 
 `npm run test:memory` streams a synthetic legacy journal of about 325 MiB decompressed under a 96 MiB V8 heap limit. This checks plugin replay allocations, not total host memory. The browser smoke test also covers 80-message paging, downloads from older pages and cold-journal recall after restart.

@@ -365,6 +365,10 @@ class Fixture extends LlmAdapter {
       else if(toolResults.length===1){const value=JSON.parse(toolResults[0].content.find(block=>block.type==='text').text);toolCall={name:'fixture_history_rows',arguments:JSON.stringify({groupId:value.groups.find(group=>group.title.includes('共享记忆二群')).id})}}
       else text='V043-SEEDED'
     }
+    if(nativeKing && input.includes('V043-RESET-RECALL')) {
+      if(!toolResults.length)toolCall={name:'read_shared_group_memory',arguments:JSON.stringify({query:'V041-GROUP'})}
+      else text='V043-RESET-RECALLED '+JSON.stringify(toolResults.map(result=>result.content))
+    }
     if(nativeKing && input.includes('V043-RECALL')) {
       if(!toolResults.length)toolCall={name:'read_shared_group_memory',arguments:JSON.stringify({query:'V043-HISTORY-0'})}
       else text='V043-RECALLED '+JSON.stringify(toolResults.map(result=>result.content))
@@ -378,13 +382,14 @@ class Fixture extends LlmAdapter {
     // The host also calls the adapter to generate titles for native conversations.
     if (prompt) {
       await appendFile(join(process.env.DSH_HOME, 'fixture-model.jsonl'), JSON.stringify({ at: Date.now(), sessionId, nativeKing, nativeBot, role, speaker, input, moderator, discussion, addressed, summarizing, intentCheck,
+        incompleteHistory: systemText.includes('部分历史会话暂不可读取'),
         recoveryInstructions: systemText.includes('上一条决定被拒绝') && !systemText.includes('"kind":"close"'),
         seesPreviousTask: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('验收主持恢复'))),
         duty: systemText.match(/你的职责是：([^\n]+)/u)?.[1],
         seesGroupFact: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('GROUP-A-ONLY-496'))),
         seesWorkspaceInstructions: messages.some(message => message.content.some(block => block.type === 'text' && block.text.includes('WORKSPACE-INSTRUCTIONS-756'))),
         calledTool: toolCall?.name, failure,
-        ...(/P038-TEST-0[23]|P039-|V040-|V041-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
+        ...(/P038-TEST-0[23]|P039-|V040-|V041-|V043-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
     }
     if (role !== 'King Arthur' && latest?.includes('P039-STREAM')) {
       yield { type: 'block-start', index: 0, blockType: 'text' }
