@@ -361,6 +361,26 @@ class Fixture extends LlmAdapter {
       }
       if(toolResults.some(result=>result.isError)){toolCall=undefined;text='V041-TOOL-FAILED '+JSON.stringify(toolResults)}
     }
+    if (nativeKing && input === '把子 Bot 都删掉吧') {
+      if (!toolResults.length) toolCall = { name: 'delete_bot', arguments: '{"all":true}' }
+      else text = toolResults.at(-1).isError ? 'V045-DELETE-FAILED' : 'V045-DELETE-DONE'
+    }
+    if (nativeKing && input === '请删除待删除助手') {
+      if (!toolResults.length) toolCall = { name: 'list_bots_and_workspaces', arguments: '{}' }
+      else if (toolResults.length === 1) {
+        const catalog = JSON.parse(toolResults[0].content.find(block => block.type === 'text').text)
+        toolCall = { name: 'delete_bot', arguments: JSON.stringify({ botId: catalog.bots.find(bot => bot.name === '待删除助手').id }) }
+      } else text = toolResults.at(-1).isError ? 'V045-DELETE-FAILED' : 'V045-DELETE-DONE'
+    }
+    if (nativeKing && input.startsWith('V045-UPDATE')) {
+      const [from, rename, duty] = input.slice('V045-UPDATE '.length).split('｜')
+      const name = rename.replace('改名为', '')
+      if (!toolResults.length) toolCall = { name: 'list_bots_and_workspaces', arguments: '{}' }
+      else if (toolResults.length === 1) {
+        const catalog = JSON.parse(toolResults[0].content.find(block => block.type === 'text').text)
+        toolCall = { name: 'update_bot', arguments: JSON.stringify({ botId: catalog.bots.find(bot => bot.name === from).id, name, duty: duty.replace('职责改为', ''), evidence: input }) }
+      } else text = toolResults.at(-1).isError ? 'V045-UPDATE-FAILED' : 'V045-UPDATE-DONE'
+    }
     if(nativeKing && input.includes('V043-SEED')) {
       if(!toolResults.length)toolCall={name:'list_existing_groups',arguments:'{}'}
       else if(toolResults.length===1){const value=JSON.parse(toolResults[0].content.find(block=>block.type==='text').text);toolCall={name:'fixture_history_rows',arguments:JSON.stringify({groupId:value.groups.find(group=>group.title.includes('共享记忆二群')).id})}}
@@ -436,6 +456,18 @@ export async function apply(ctx) {
       if(!king||!workspace||workspace.sessionIds[0]!==king.id)throw new Error('King Arthur is not first in its workspace')
       const allowed=new Set(visible.filter(agent=>['king','bot'].includes(ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode)).map(agent=>agent.id))
       if(workspace.sessionIds.some(id=>!ctx.workspaceRegistry.archivedSessionIds.includes(id)&&!allowed.has(id)))throw new Error('Manual New Session left an extra workspace conversation')
+      for (const id of allowed) {
+        if (!workspace.sessionIds.includes(id)) throw new Error('Bot private chat missing from selected workspace')
+        for (const stopActivity of [false, true]) {
+          try {
+            await ctx.workspaceRegistry.archiveSession(id, { stopActivity })
+            throw new Error('Bot chat accepted manual archive')
+          } catch (error) {
+            if (!error.message.includes('不能手动归档')) throw error
+          }
+        }
+        if (ctx.workspaceRegistry.archivedSessionIds.includes(id)) throw new Error('Guard wrote an archive entry')
+      }
       const pins=JSON.stringify(ctx.workspaceRegistry.pinnedSessionIds)
       await workspace.insertSessionBefore(king.id)
       for(let attempt=0;attempt<100&&workspace.sessionIds[0]!==king.id;attempt++)await delay(10)

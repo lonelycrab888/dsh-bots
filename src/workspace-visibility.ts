@@ -13,7 +13,12 @@ export interface WorkspaceRegistryPort {
 const snapshotSchema=z.object({path:z.string().optional(),hidden:z.boolean(),title:z.string(),sessions:z.array(z.string()),visible:z.array(z.string()),pinned:z.array(z.string()),before:z.string().optional()})
 export class WorkspaceVisibility {
   private readonly registry:WorkspaceRegistryPort
-  constructor(registry:WorkspaceRegistryPort){this.registry=registry}
+  private readonly archiveSession: WorkspaceRegistryPort['archiveSession']
+  constructor(registry:WorkspaceRegistryPort){
+    this.registry=registry
+    // Plugin lifecycle cleanup can retire sessions when disabling or resetting.
+    this.archiveSession=registry.archiveSession.bind(registry)
+  }
   private file(path:string) {
     const root=realpathSync(path),dir=join(root,'.dsh-bots');mkdirSync(dir,{recursive:true,mode:0o700})
     if(realpathSync(dir)!==dir)throw new Error('Bots 状态目录不能是符号链接。')
@@ -49,6 +54,7 @@ export class WorkspaceVisibility {
       this.write(file,{...prior,hidden:false})
     }
     if(!workspace.sessionIds.includes(mainSession))await workspace.attachSession(mainSession)
+    if(this.registry.archivedSessionIds.includes(mainSession))await this.registry.unarchiveSession(mainSession)
     await this.keepFirst(path,firstSession)
   }
   async keepFirst(path:string,sessionId:string){
@@ -62,7 +68,7 @@ export class WorkspaceVisibility {
     const canonical=existsSync(path)?realpathSync(path):path
     const all=this.registry.list(),index=all.findIndex(w=>w.path===canonical);if(index<0)return
     if(!existsSync(path)){
-      for(const id of all[index].sessionIds)await this.registry.archiveSession(id,{stopActivity:true})
+      for(const id of all[index].sessionIds)await this.archiveSession(id,{stopActivity:true})
       await this.registry.delete(all[index].id);return
     }
     const workspace=all[index],file=this.file(path)
@@ -70,7 +76,7 @@ export class WorkspaceVisibility {
     // Keep the original visibility snapshot if an earlier cleanup was interrupted.
     const snapshot=prior?.hidden?prior:{path:realpathSync(path),hidden:true,title:workspace.title,sessions:[...workspace.sessionIds],visible:workspace.sessionIds.filter(id=>!this.registry.archivedSessionIds.includes(id)),pinned:this.registry.pinnedSessionIds.filter(id=>workspace.sessionIds.includes(id)),before:all[index+1]?.id}
     this.write(file,snapshot)
-    for(const id of snapshot.visible)await this.registry.archiveSession(id,{stopActivity:true})
+    for(const id of snapshot.visible)await this.archiveSession(id,{stopActivity:true})
     await this.registry.delete(workspace.id)
   }
 }

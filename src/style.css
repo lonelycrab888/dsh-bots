@@ -198,7 +198,7 @@ button[aria-label="Bots"] { text-align: left; justify-content: flex-start; }
 .dsh-bots-attachments { display: flex; flex-wrap: wrap; gap: .3em; margin: .35em 0 0; padding: 0; list-style: none; }
 .dsh-bots-attachments li { padding: .1em .5em; border: 1px solid var(--bots-border); border-radius: 6px; color: var(--bots-muted); }
 
-.dsh-bots-library[data-directory] > :is(h1, .dsh-bots-directory, .dsh-bots-directory-toolbar, .dsh-bots-directory-management, .dsh-bots-directory-empty) {
+.dsh-bots-library[data-directory] > :is(h1, .dsh-bots-directory, .dsh-bots-directory-toolbar, .dsh-bots-directory-management, .dsh-bots-directory-empty, .dsh-bots-settings) {
   max-width: 760px;
   margin-inline: auto;
 }

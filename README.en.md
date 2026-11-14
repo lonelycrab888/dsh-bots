@@ -177,7 +177,7 @@ Model and reasoning options come from the host's standard API configuration. Aft
 
 ### Deleting and recreating Bots
 
-Click **删除** (Delete) on a child Bot card, review the notice, then choose **确认删除** (Confirm deletion). King Arthur cannot be deleted.
+Click **删除** (Delete) on a child Bot card, review the notice, then choose **确认删除** (Confirm deletion). You can also ask King Arthur in its private chat to delete one, several, or all child Bots. Their chats leave the workspace and the transcripts are archived.
 
 - Deletion revokes the Bot's dispatch eligibility across all groups and cancels group turns currently running. Existing groups retain historical replies. The `@` menu drops the deleted Bot.
 - On its next execution, King Arthur starts a fresh coordination session without injecting group context from before deletion. Retired IDs in personal memory are replaced with “∅” (deleted ID); unrelated preferences remain intact.
@@ -247,6 +247,13 @@ Personal memory has no fixed entry-count limit. Each entry supports **600 charac
 
 **Clear page** archives the current window and creates a blank context, retaining personal and shared group memories. Each Bot has one current private conversation; older windows are history only. **Reset King memory** clears King Arthur's personal entries and replaces its window, retaining child memories and shared group history. Removing a memory does not delete original chat messages.
 
+## v0.4.5: Roundtable settings and Bot management
+
+- **Group member limit.** Set the child Bot limit on the Roundtable directory page. The settings panel stays aligned with the member area and toolbar as you drag the sidebar.
+- **Private chats appear immediately.** King Arthur and child Bot chats appear in the selected workspace on creation. Current chats are protected from manual archiving. Clear page replaces the current chat and archives the old one.
+- **Edit child Bots from King Arthur's private chat.** Ask it to rename a child Bot or change its duty. The child keeps its chat and long-term memory. Existing groups use the member details saved when they were created.
+- **Delete child Bots from King Arthur's private chat.** Ask it to delete one named Bot, several named Bots, or all child Bots. Deleting all includes disabled child Bots and retains King Arthur. Deleted Bots' private chats leave the workspace and their transcripts are archived. Startup also cleans up chats left behind by earlier deletions.
+
 ## v0.4.4: group message intent
 
 Clear progress questions return status directly. Model-based classification uses shorter historical context and keeps the latest message intact. A failed request, timeout, or invalid response gets one bounded retry. If both attempts fail, the group retains the message and progress and asks whether to continue the topic or start a new task. Logs record the failure category and attempt number.
@@ -304,6 +311,6 @@ Automated coverage includes persistence and retrieval beyond 32 memories, reopen
 
 `npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks downloaded bytes and filenames, uploaded files after restart, manual New Session blocking in the King workspace, automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-The current implementation passed type checking, 105 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+The current implementation passed type checking, 108 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
 
 `npm run test:memory` streams a synthetic legacy journal of about 325 MiB decompressed under a 96 MiB V8 heap limit. This checks plugin replay allocations, not total host memory. The browser smoke test also covers 80-message paging, downloads from older pages and cold-journal recall after restart.

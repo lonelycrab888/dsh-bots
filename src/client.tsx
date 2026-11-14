@@ -10,10 +10,10 @@ import { createContext, useContext, memo, useEffect, useId, useLayoutEffect, use
 import Markdown, { defaultUrlTransform } from 'react-markdown'
 import { localFileLink, type GroupFileTarget, type DownloadGroupFile } from './file-links.ts'
 import remarkGfm from 'remark-gfm'
-import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, type Bot, type BotId, type Group, type Row, type Library, type BotModel } from './bots.ts'
+import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, type Bot, type BotId, type Group, type Row, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
 import type { MemoryPage } from './workspace-memory.ts'
-import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
+import { validateMemory, type KingMemory } from './memory.ts'
 import { botMentionFormatter, groupMentionSource, type GroupMentionSource } from './mention.ts'
 import { avatarStore, followAccountAvatar, preloadAvatar, type AccountFrame } from './account-avatar.ts'
 
@@ -240,10 +240,6 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
           </button>)}
         </div>
         {!snapshot.library.bots.length && <p className="dsh-bots-directory-empty">尚未创建子 Bot。点击“新建 Bot”定义名称和职责，再创建群聊。</p>}
-        <DirectoryManagement snapshot={snapshot} catalog={catalog} disabled={busy || !snapshot.writable} done={load} showArchived={showArchived} setShowArchived={setShowArchived} />
-      </>}
-      {selection === coordinatorId && <>
-        <KingCard snapshot={snapshot} busy={busy} catalog={catalog} reload={load} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'King Arthur 模型已保存，下次执行生效。')} />
         <form className="dsh-bots-settings" onSubmit={event => {
           event.preventDefault()
           void save({ ...snapshot.library, maxMembers: Number(limit) }, '群聊人数上限已保存。')
@@ -254,6 +250,10 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
           </label>
           <button disabled={busy || !snapshot.writable} type="submit">保存人数上限</button>
         </form>
+        <DirectoryManagement snapshot={snapshot} catalog={catalog} disabled={busy || !snapshot.writable} done={load} showArchived={showArchived} setShowArchived={setShowArchived} />
+      </>}
+      {selection === coordinatorId && <>
+        <KingCard snapshot={snapshot} busy={busy} catalog={catalog} reload={load} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'King Arthur 模型已保存，下次执行生效。')} />
       </>}
       {edit && <form className="dsh-bots-editor" onSubmit={event => {
         event.preventDefault()
@@ -279,7 +279,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
       </form>}
       {pendingDelete && <section className="dsh-bots-editor" role="alertdialog" aria-label={`删除 ${pendingDelete.name}`}>
         <h2>删除「{pendingDelete.name}」？</h2>
-        <p>删除后不能恢复此定义，旧编号永久停用。正在进行的群聊轮次会中止；主 Bot 下次回复会重新建立调度上下文。历史消息保留，但删除前的对话不再注入新的调度上下文。长期记忆中的旧编号也会清理。</p>
+        <p>删除后不能恢复此定义，旧编号永久停用。对应独聊会从工作区移除，历史记录移入归档。正在进行的群聊轮次会中止；主 Bot 下次回复会重新建立调度上下文。历史消息保留，但删除前的对话不再注入新的调度上下文。长期记忆中的旧编号也会清理。</p>
         <div className="dsh-bots-actions">
           <button type="button" disabled={busy} onClick={() => setPendingDelete(undefined)}>取消删除</button>
           <button type="button" disabled={busy || !snapshot.writable} onClick={() => void confirmDelete()}>确认删除</button>
@@ -688,7 +688,7 @@ interface ClientContext {
   remote: {
     $mount(contribution:unknown):Promise<()=>Promise<void>>
     workspaceFiles:{readBytes(sessionId:string,path:string,options:Record<string,never>,signal:AbortSignal):Promise<{ok:true;value:{data:Uint8Array}}|{ok:false;error:{message:string}}>}
-    dshBots:{taskSummary(sessionId:string,taskId:string):Promise<{ok:true;value:string}|{ok:false;error:{message:string}}>;historyPage(sessionId:string,request:{before?:string;around?:string}):Promise<{ok:true;value:string}|{ok:false;error:{message:string}}>;downloadDocument(sessionId:string,rowId:string,index:number):Promise<{ok:true;value:{name:string;data:string}}|{ok:false;error:{message:string}}>;saveCatalog(request:Record<string,unknown>):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
+    dshBots:{deleteBot(request:{botId:string;revision:number}):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;taskSummary(sessionId:string,taskId:string):Promise<{ok:true;value:string}|{ok:false;error:{message:string}}>;historyPage(sessionId:string,request:{before?:string;around?:string}):Promise<{ok:true;value:string}|{ok:false;error:{message:string}}>;downloadDocument(sessionId:string,rowId:string,index:number):Promise<{ok:true;value:{name:string;data:string}}|{ok:false;error:{message:string}}>;saveCatalog(request:Record<string,unknown>):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
     directoryPicker:{pick():Promise<{ok:true;value:string|null}|{ok:false;error:{message:string}}>}
     $on(event: string, callback: () => void): () => void
     $stream(options: { name: string; open(signal: AbortSignal): unknown; ended(): Error; carrierFailed(): void }): AsyncIterable<AccountFrame> & { dispose(): unknown }
@@ -797,13 +797,9 @@ function mountClient(ctx: ClientContext) {
     },
     subscribe: refresh => ctx.remote.$on('settings/document-updated', refresh),
     async remove(id, snapshot) {
-      const library = deleteBot(snapshot.library, id)
-      const kingMemory = forgetBotIds(snapshot.kingMemory, [id])
-      const result = await ctx.remote.settings.mutate('dsh-bots', [
-        { op: 'set', path: ['library'], value: library },
-        { op: 'set', path: ['kingMemory'], value: kingMemory },
-      ], snapshot.revision)
+      const result = await ctx.remote.dshBots.deleteBot({ botId: id, revision: snapshot.revision })
       if (!result.ok) throw new Error(result.error.message)
+      if (result.value.kind === 'error') throw new Error(result.value.text)
       return catalog.load()
     },
     async models() {

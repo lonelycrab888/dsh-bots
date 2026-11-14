@@ -15,6 +15,8 @@ const request = { mode:'strict' as const, typeSymbol:'dsh-bots#KingRequest', cre
 const resetRequest={mode:'strict' as const,typeSymbol:'dsh-bots#ResetRequest',create:()=>z.object({options:resetOptions,revision:z.number().int(),confirmation:z.literal('RESET')})}
 export const catalogInput = z.object({ library:z.unknown(),revision:z.number().int() })
 const catalogRequest={mode:'strict' as const,typeSymbol:'dsh-bots#CatalogRequest',create:()=>catalogInput}
+export const deleteBotInput = z.object({ botId: z.string(), revision: z.number().int() }).strict()
+const deleteRequest = { mode:'strict' as const, typeSymbol:'dsh-bots#DeleteBotRequest', create:()=>deleteBotInput }
 const historyRequest={mode:'strict' as const,typeSymbol:'dsh-bots#HistoryPage',create:()=>z.object({before:z.string().optional(),around:z.string().optional()})}
 const documentRow={mode:'strict' as const,typeSymbol:'string',create:()=>z.string()}
 const documentIndex={mode:'strict' as const,typeSymbol:'number',create:()=>z.number().int().nonnegative()}
@@ -43,6 +45,11 @@ export const KING_REMOTE = createTypertRemoteInfo({package:'dsh-bots',methods:{
   'dshBots/saveCatalog': {
     service:'dshBots', invocation:{kind:'direct'},
     parameters:[{name:'request',source:'json',codec:catalogRequest,strictCodec:catalogRequest}],
+    result:{mode:'strict',typeSymbol:'dsh-bots#KingResult',create:()=>z.object({kind:z.enum(['success','error']),text:z.string()})},
+  },
+  'dshBots/deleteBot': {
+    service:'dshBots', invocation:{kind:'direct'},
+    parameters:[{name:'request',source:'json',codec:deleteRequest,strictCodec:deleteRequest}],
     result:{mode:'strict',typeSymbol:'dsh-bots#KingResult',create:()=>z.object({kind:z.enum(['success','error']),text:z.string()})},
   },
   'dshBots/reset': {

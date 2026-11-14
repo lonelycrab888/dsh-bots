@@ -217,3 +217,81 @@ export function createRequestedBots(library: Library, raw: unknown, user: string
   const updated = updateLibrary(library, { ...library, bots: [...library.bots, ...pendingBots] })
   return { library: updated, created: updated.bots.slice(library.bots.length), existing: [...existing], conflicts: [...conflicts.values()] }
 }
+
+export function updateRequestedBot(library: Library, raw: unknown, user: string) {
+  const request = z.object({
+    botId: definition.shape.id,
+    name: definition.shape.name.optional(),
+    duty: definition.shape.duty.optional(),
+    evidence: z.string().trim().min(3).max(6000),
+  }).strict().parse(raw)
+  const bot = library.bots.find(item => item.id === request.botId)
+  if (!bot) throw new Error('请选择已有的子 Bot。')
+  if (request.name === undefined && request.duty === undefined) throw new Error('请提供新名称或新职责。')
+  const source = request.evidence.normalize('NFKC')
+  const original = user.normalize('NFKC').replace(/(?:```|~~~)[\s\S]*?(?:(?:```|~~~)|$)|^\s*>[^\n]*/gmu, ' ')
+  const position = original.indexOf(source)
+  const before = original.slice(0, position).split(/[。！？!?；;\n，,]/u).at(-1) ?? ''
+  const command = source.replace(/“[^”]*”|「[^」]*」|"[^"]*"|`[^`]*`/gu, ' ')
+  const editVerb = /改名|更名|重命名|改成|改为|修改|更新|调整|设为|\b(?:rename|change|update|set)\b/giu
+  const edit = editVerb.exec(command)
+  if (position < 0 ||
+      !source.includes(bot.name.normalize('NFKC')) ||
+      !edit || indirectPrefix.test(before + command.slice(0, edit.index))) {
+    throw new Error('请引用本轮明确要求修改该子 Bot 的原文。')
+  }
+  if (request.name !== undefined &&
+      (isCoordinatorName(request.name) || !source.includes(request.name.normalize('NFKC')))) {
+    throw new Error('新名称必须出现在用户请求中，且不能使用主 Bot 的保留名称。')
+  }
+  const updated = {
+    ...bot,
+    ...(request.name !== undefined ? { name: request.name } : {}),
+    ...(request.duty !== undefined ? { duty: request.duty } : {}),
+  }
+  return { bot: updated, library: validateLibrary({ ...library, bots: library.bots.map(item => item.id === bot.id ? updated : item) }) }
+}
+
+export function requestedBotDeletion(library: Library, raw: unknown, user: string): Bot[] {
+  const request = z.union([
+    z.object({ botId: definition.shape.id }).strict(),
+    z.object({ botIds: z.array(definition.shape.id).min(1).max(100) }).strict(),
+    z.object({ all: z.literal(true) }).strict(),
+  ]).parse(raw)
+  let command = user.normalize('NFKC').trim().replace(/[。.!！]+$/u, '').trim()
+  command = command.replace(/^(?:@?King\s+Arthur[\s,，:：]+)?(?:(?:请|帮我|帮忙|麻烦你?|能不能|可以|能否)\s*)*/iu, '')
+
+  // Recognize command structure before resolving names. Quoted examples,
+  // negation, questions about how to delete and mixed scopes fail closed.
+  const verb = '(?:删掉|删除|删了|删|移除|清空|清掉|清理掉|清理|全删|清除)'
+  const leading = new RegExp('^' + verb + '\\s*(.+?)$', 'iu')
+  const trailing = new RegExp('^(?:把|将)\\s*(.+?)\\s*(全都|全部|通通|统统|都|一起)?\\s*' + verb + '(?:掉|了|干净)?$', 'iu')
+  const phrase = command.replace(/(?:吧|就行|一下)$/u, '').trim()
+  const reversed = trailing.exec(phrase)
+  const target = (reversed?.[1] ?? leading.exec(phrase)?.[1]
+    ?? /^(?:please\s+)?(?:delete|remove)\s+(.+)$/iu.exec(command)?.[1])
+    ?.trim().replace(/(?:吧|就行|一下)$/u, '').trim()
+  const childLabel = '(?:子\\s*(?:bots?|机器人|智能体|助手)|child\\s+bots?)'
+  const allTarget = new RegExp('^(?:(?:现在的?|现有的?|当前的?)?\\s*(?:所有|全部|全体|每个|all)\\s*(?:的|the)?\\s*' +
+    childLabel + '|' + childLabel + '\\s*(?:全都|全部|通通|统统|都)?)$', 'iu')
+  if ('all' in request) {
+    const explicitScope = /所有|全部|全体|每个|全都|通通|统统|都|\ball\b/iu.test(target ?? '')
+      || /^(?:全都|全部|通通|统统|都)$/u.test(reversed?.[2] ?? '')
+      || /清空|全删|删干净|clear\s+out/iu.test(phrase)
+    if (!target || !allTarget.test(target) || !explicitScope) throw new Error('请明确说明要删除全部子 Bot。')
+    return library.bots
+  }
+
+  const names = target?.split(/\s*(?:、|,|，|和|与|以及|\band\b)\s*/iu).map(name => normalizeName(
+    name.replace(new RegExp('^' + childLabel + '\\s+', 'iu'), '')
+      .replace(/(?:这个|那个)(?:子\s*)?Bot$/iu, '').trim()
+      .replace(/^[@＠]/u, '').replace(/^[「『“"'](.+)[」』”"']$/u, '$1'),
+  ))
+  const ids = 'botId' in request ? [request.botId] : request.botIds
+  const bots = ids.map(id => library.bots.find(bot => bot.id === id))
+  if (!names || names.length !== ids.length || new Set(ids).size !== ids.length ||
+      !bots.every((bot): bot is Bot => !!bot && names.includes(normalizeName(bot.name)))) {
+    throw new Error('请明确指出要删除的子 Bot 名称，或说明要删除全部子 Bot。')
+  }
+  return bots
+}

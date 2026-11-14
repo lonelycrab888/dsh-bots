@@ -2,12 +2,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const kingInstructions = `你是 King Arthur，用户的通用助手。根据用户当前目标自然交流，回答长度和形式随任务需要调整。沿用宿主的工具、工作区和执行规则。
-你还可以创建 Bot、创建群聊和向已有群聊发送消息或交办任务。用户提出这些需求时使用对应工具，以工具回执确认结果。管理功能只是可选能力，按用户需要使用。`
+你还可以创建 Bot、按用户要求修改子 Bot 的名称或职责、按用户本轮要求删除指定或全部子 Bot（包括口语化表达）、创建群聊和向已有群聊发送消息或交办任务。用户提出这些需求时使用对应工具，以工具回执确认结果。管理功能只是可选能力，按用户需要使用。`
 
 export interface KingAgentTools {
   catalog(): unknown
   history(query?: string, messageId?: string, offset?: number): unknown
   createBots(bots: unknown, signal: AbortSignal): Promise<unknown>
+  deleteBot(request: unknown, signal: AbortSignal): Promise<unknown>
+  updateBot(request: unknown, signal: AbortSignal): Promise<unknown>
   createGroup(proposal: unknown, signal: AbortSignal): Promise<unknown>
   confirmGroup(action: 'confirm' | 'cancel', signal: AbortSignal): Promise<unknown>
   remember(actions: unknown, signal: AbortSignal): Promise<unknown>
@@ -31,6 +33,22 @@ export function registerKingAgentTools(ctx: Context, port: KingAgentTools) {
       name: 'create_bots', description: 'Create 1–6 Bots requested by the user. Read the catalog first. Include verbatim evidence from the current user request. Names contain letters, digits, underscores or hyphens, at most 24 characters.',
       parameters: { bots: { type: 'array', required: true, items: { ...bot, properties: { ...bot.properties, evidence: { type: 'string', required: true }, reuse: { type: 'boolean' } } } } }, output,
       async execute(args, { signal }) { return JSON.stringify(await port.createBots(args.bots, signal)) },
+    })),
+    ctx.tools.register(defineTool({
+      name: 'delete_bot',
+      description: 'Delete child Bots explicitly requested in the current message. For all child Bots (including disabled ones), pass all: true, e.g. 把子Bot都删掉 or 清空子Bot. For named targets, look up IDs and pass botId or botIds. Supply only one selector. Their private chats leave the workspace and history is archived. Ask if the scope is unclear.',
+      parameters: { botId: { type: 'string' }, botIds: { type: 'array', items: { type: 'string' } }, all: { type: 'boolean' } }, output,
+      async execute(args, { signal }) { return JSON.stringify(await port.deleteBot(args, signal)) },
+    })),
+    ctx.tools.register(defineTool({
+      name: 'update_bot',
+      description: 'Update an existing child Bot name or duty at the user’s explicit request. Read the catalog for its ID first. Supply only the fields requested and quote the current request naming that Bot. A new name must appear verbatim in the request.',
+      parameters: {
+        botId: { type: 'string', required: true },
+        name: { type: 'string' }, duty: { type: 'string' },
+        evidence: { type: 'string', required: true },
+      }, output,
+      async execute(args, { signal }) { return JSON.stringify(await port.updateBot(args, signal)) },
     })),
     ctx.tools.register(defineTool({
       name: 'create_group', description: 'Create a group requested by the user. Read the catalog first. Supply existing member IDs and optional new Bots. runTask starts discussion and returns results here. If a workspace is missing, returns a pending proposal for clarification. Include verbatim current-request evidence.',

@@ -4,9 +4,9 @@ import { performReset, finishReset, sessionIsCurrent, resetOptions, type ResetPo
 import { WorkspaceVisibility, type WorkspaceRegistryPort } from './workspace-visibility.ts'
 import { assertRootCreation, isKingWorkspace, reservedWorkspaceNotice } from './workspace-policy.ts'
 import { modelForBot, availableMembers, redactDeletedBotIds, freshCoordinator, updateLibrary } from './bots.ts'
-import { bindTypertRemote } from '@deepseek-ai/dsh-typert-protocol'
+import { bindTypertRemote, RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
-import { KING_REMOTE, catalogInput, kingRequest } from './king-remote.ts'
+import { KING_REMOTE, catalogInput, deleteBotInput, kingRequest } from './king-remote.ts'
 import { readGroupDocument } from './group-files.ts'
 import { groupPage, taskSummary } from './group-pages.ts'
 import { readGroupLog } from './group-log.ts'
@@ -34,8 +34,8 @@ import { askGroupUserTool, MemberRun, outcomeText, registerGroupQuestion, stageT
 import { appendDelegatedPolicyOverrides, applyChildComposition, captureDelegatedPolicyOverrides, childSessionMeta, resolveChildAgentOptions, resolveChildDepth } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { memoryContext, validateMemory, type KingMemory } from './memory.ts'
-import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName, previousCoordinatorName, discussionTopic, resolveTargets, selectMembers, validateLibrary, createRequestedBots, type Group, type Member, type Row } from './bots.ts'
+import { memoryContext, validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
+import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName, previousCoordinatorName, discussionTopic, resolveTargets, selectMembers, validateLibrary, createRequestedBots, updateRequestedBot, requestedBotDeletion, deleteBot, type Group, type Member, type Row } from './bots.ts'
 import { projection } from './projection.ts'
 import type { Config, KingWorkspace } from './config.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from './group-creation.ts'
@@ -49,6 +49,7 @@ export { Config } from './config.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    'dsh-bots/private-created': { kind: 'dsh-bots/private-created' }
     'dsh-bots/group-created': { kind: 'dsh-bots/group-created' }
     'dsh-bots/wake-group': { kind: 'dsh-bots/wake-group' }
     'dsh-bots/task-update': { kind: 'dsh-bots/task-update'; taskId: string; updateId: string }
@@ -93,6 +94,27 @@ export async function apply(ctx: Context, config: Config) {
   const nativeBots = new WeakSet<Agent>()
   const botInputs = new WeakMap<Agent, {text:string;owner:boolean}>()
   const visibility = new WorkspaceVisibility(ctx.get('workspaceRegistry') as unknown as WorkspaceRegistryPort)
+  const registry = ctx.workspaceRegistry
+  const archiveDescriptor = Object.getOwnPropertyDescriptor(registry, 'archiveSession')
+  const archiveSession = registry.archiveSession
+  const guardedArchive: typeof registry.archiveSession = async (sessionId, options) => {
+    const selected = config.kingWorkspace.get()
+    if (!lifetime.signal.aborted && selected && (selected.sessionId === sessionId ||
+        config.library.get().bots.some(bot => {
+          const entry = config.botConversations.get()[bot.id]
+          return !bot.archived && entry?.sessionId === sessionId &&
+            entry.path === selected.path && entry.epoch === config.sessionEpoch.get()
+        }))) {
+      throw new RemoteError('gateway/bad-request', '当前 Bot 独聊由 Roundtable 管理，不能手动归档。', {})
+    }
+    return archiveSession.call(registry, sessionId, options)
+  }
+  Object.defineProperty(registry, 'archiveSession', { configurable: true, writable: true, value: guardedArchive })
+  ctx.effect(() => () => {
+    if (Object.getOwnPropertyDescriptor(registry, 'archiveSession')?.value !== guardedArchive) return
+    if (archiveDescriptor) Object.defineProperty(registry, 'archiveSession', archiveDescriptor)
+    else Reflect.deleteProperty(registry, 'archiveSession')
+  })
   let reorderPending: ReturnType<typeof setImmediate> | undefined
   ctx.on('domain/changed', change => {
     if (change.domain !== 'workspace' || !['workspaces',''].includes(change.table) || change.operation !== 'put' || reorderPending || lifetime.signal.aborted) return
@@ -148,10 +170,16 @@ export async function apply(ctx: Context, config: Config) {
           resetting = true
           try { await finishReset(resetPort); recoveryError = '' } finally { resetting = false }
         }
+        for (const botId of config.library.get().deletedBotIds) {
+          await retireBotConversation(botId).catch(error => ctx.logger.warn(`dsh-bots: could not retire Bot conversation: ${String(error)}`))
+        }
         const selected = config.kingWorkspace.get()
         if (!selected?.sessionId) return
         const loaded = await services.sessionController.resolveAgent(SessionId(selected.sessionId))
-        if ('agent' in loaded) await recoverTaskResults(loaded.agent)
+        if ('agent' in loaded) {
+          await revealPrivateConversation(loaded.agent)
+          await recoverTaskResults(loaded.agent)
+        }
         await ensureBotConversations()
       } catch (error) {
         ctx.logger.warn(`dsh-bots: could not restore result delivery: ${String(error)}`)
@@ -192,6 +220,22 @@ export async function apply(ctx: Context, config: Config) {
     return result.changed ? `长期记忆已更新：保存 ${result.remembered} 条，移出 ${result.forgotten} 条。` : '已有相同记忆，本轮没有重复保存。'
   }
 
+  async function deleteChildBots(botIds: string[], revision: number) {
+    if (!botIds.length) return
+    const library = botIds.reduce(deleteBot, validateLibrary(config.library.get()))
+    const kingMemory = forgetBotIds(validateMemory(config.kingMemory.get()), botIds)
+    await ctx.settings.mutate('dsh-bots', [
+      { op: 'set', path: ['library'], value: library },
+      { op: 'set', path: ['kingMemory'], value: kingMemory },
+    ], revision)
+    const failures: string[] = []
+    for (const botId of botIds) {
+      try { await retireBotConversation(botId) }
+      catch (error) { failures.push(botId); ctx.logger.warn(`dsh-bots: could not retire Bot conversation: ${String(error)}`) }
+    }
+    if (failures.length) throw new Error('子 Bot 定义已删除，部分独聊尚未移除。重启 Harness 后会重试清理。')
+  }
+
   const kingService = {
     ctx,
     async taskSummary(agent:Agent,taskId:string) {
@@ -209,6 +253,17 @@ export async function apply(ctx: Context, config: Config) {
       if (!attachments) throw new Error('宿主附件服务不可用。')
       return readGroupDocument(groups.stateOf(agent.session).group, rowId, index,
         ref => attachments.readFileStream(ref, lifetime.signal))
+    },
+    async deleteBot(input: unknown) {
+      try {
+        await recovery
+        if (resetting || config.resetPending.get()) throw new Error('请先完成重置。')
+        const { botId, revision } = deleteBotInput.parse(input)
+        await deleteChildBots([botId], revision)
+        return { kind: 'success', text: '' }
+      } catch (error) {
+        return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+      }
     },
     async saveCatalog(input: unknown) {
       try {
@@ -269,6 +324,7 @@ export async function apply(ctx: Context, config: Config) {
           ctx.get('sessionTitle')?.rename(agent.session, coordinatorName)
           await ctx.sessions.flush(agent.session)
           await visibility.show(path,selected.sessionId)
+          await revealPrivateConversation(agent)
           if(previousWorkspace&&previousWorkspace.path!==path)await visibility.hide(previousWorkspace.path)
           await ensureBotConversations()
           return { kind:'success', text:JSON.stringify(selected) }
@@ -385,17 +441,17 @@ export async function apply(ctx: Context, config: Config) {
         if (target && model) target.model.select(model as ModelSelection)
       }
       if (!target || target.session.header.cwd !== selected.path) throw new Error('子 Bot 对话初始化失败，请重试。')
-      if (workspace().path !== selected.path || config.sessionEpoch.get() !== entry.epoch || config.botConversations.get()[botId]?.sessionId !== entry.sessionId || !config.library.get().bots.some(bot => bot.id === botId && !bot.archived)) throw new Error('Bot 或工作区已变更，请重新打开独聊。')
+      const currentBot = config.library.get().bots.find(item => item.id === botId && !item.archived)
+      if (workspace().path !== selected.path || config.sessionEpoch.get() !== entry.epoch || config.botConversations.get()[botId]?.sessionId !== entry.sessionId || !currentBot) throw new Error('Bot 或工作区已变更，请重新打开独聊。')
       if (groups.stateOf(target.session).group?.mode !== 'bot') {
         appendPluginRecord(target.session, 'plugin:dsh-bots/bot', {botId})
         appendPluginRecord(target.session, 'plugin:dsh-bots/epoch', {value:entry.epoch})
       }
       setupNativeBot(target)
-      ctx.get('sessionTitle')?.rename(target.session, bot.name)
+      ctx.get('sessionTitle')?.rename(target.session, currentBot.name)
       await ctx.sessions.flush(target.session)
-      await checkpointBotSession(target)
       await visibility.show(selected.path, entry.sessionId, selected.sessionId)
-      if (ctx.workspaceRegistry.archivedSessionIds.includes(id)) await ctx.workspaceRegistry.unarchiveSession(id)
+      await revealPrivateConversation(target)
       if (entry.previousSessionId) {
         await ctx.workspaceRegistry.archiveSession(SessionId(entry.previousSessionId), {stopActivity:true})
         const {previousSessionId: _, ...settled} = entry
@@ -405,6 +461,27 @@ export async function apply(ctx: Context, config: Config) {
     })()
     openingBots.set(botId, work)
     try { return await work } finally { openingBots.delete(botId) }
+  }
+
+  async function retireBotConversation(botId: string) {
+    // An in-flight creation can still be settling when the definition is retired.
+    await openingBots.get(botId)?.catch(() => {})
+    const entry = config.botConversations.get()[botId]
+    if (!entry || !config.library.get().deletedBotIds.includes(botId)) return
+    for (const value of new Set([entry.sessionId, entry.previousSessionId])) {
+      if (!value || value === config.kingWorkspace.get()?.sessionId) continue
+      const id = SessionId(value)
+      if (ctx.sessions.get(id) || await ctx.sessionPersistence.stat(id)) {
+        await registry.archiveSession(id, { stopActivity: true })
+      }
+      for (const item of registry.list()) {
+        if (item.sessionIds.includes(id)) await item.detachSession(id)
+      }
+    }
+    // Keep the binding until cleanup succeeds so startup can retry interrupted deletion.
+    if (config.botConversations.get()[botId]?.sessionId === entry.sessionId) {
+      await ctx.settings.mutate('dsh-bots', [{ op: 'unset', path: ['botConversations', botId] }], resetPort.read().revision)
+    }
   }
 
   async function ensureBotConversations() {
@@ -553,8 +630,8 @@ export async function apply(ctx: Context, config: Config) {
     }
     setupNativeKing(target)
     await ctx.sessions.flush(target.session)
-    await checkpointBotSession(target)
     await visibility.show(previous.path,replacementId)
+    await revealPrivateConversation(target)
     await ctx.workspaceRegistry.archiveSession(SessionId(previous.sessionId),{stopActivity:true})
   }
 
@@ -635,6 +712,16 @@ export async function apply(ctx: Context, config: Config) {
         ctx.logger.warn(`dsh-bots: could not read a linked discussion: ${String(error)}`)
       }
     }
+  }
+
+  async function revealPrivateConversation(agent: Agent) {
+    // Harness hides blank conversations. Initialize the list entry without
+    // sending user text or allowing the initialization step to call a model.
+    if (agent.status === 'idle' && ctx.agents.turnBoundaryOf(agent.session).lastTurn === 0) {
+      agent.followup(createUserMessage({ source: { kind: 'dsh-bots/private-created' }, content: [] }))
+      await agent.whenIdle()
+    }
+    await checkpointBotSession(agent)
   }
 
   async function checkpointBotSession(agent: Agent) {
@@ -729,6 +816,23 @@ export async function apply(ctx: Context, config: Config) {
         if (result.created.length) await ctx.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: result.library }], entry.revision)
         await ensureBotConversations()
         return { created: result.created, existing: result.existing, conflicts: result.conflicts }
+      },
+      async deleteBot(raw, signal) {
+        signal.throwIfAborted()
+        const request = input()
+        const revision = resetPort.read().revision
+        const bots = requestedBotDeletion(validateLibrary(config.library.get()), raw, request.text)
+        await deleteChildBots(bots.map(bot => bot.id), revision)
+        return { deleted: bots.map(bot => bot.name), count: bots.length }
+      },
+      async updateBot(raw, signal) {
+        signal.throwIfAborted()
+        const request = input()
+        const revision = resetPort.read().revision
+        const { bot, library } = updateRequestedBot(validateLibrary(config.library.get()), raw, request.text)
+        await ctx.settings.mutate('dsh-bots', [{ op: 'set', path: ['library'], value: library }], revision)
+        if (!bot.archived) await openBotConversation(bot.id)
+        return bot
       },
       async createGroup(raw, signal) {
         signal.throwIfAborted()
@@ -869,6 +973,10 @@ export async function apply(ctx: Context, config: Config) {
 
   ctx.on('agent/pre-step', async ({ agent, messages, signal, modelSelection }, next) => {
     const existingGroup=groups.stateOf(agent.session).group
+    if ((existingGroup?.mode === 'king' || existingGroup?.mode === 'bot') &&
+        messages.length && messages.every(message => message.source.kind === 'dsh-bots/private-created')) {
+      return { kind: 'reject' }
+    }
     if(agent.session.header.origin!=='subagent'&&existingGroup&&(resetting||config.resetPending.get()||!sessionIsCurrent(existingGroup,config.sessionEpoch.get()))){
       const text=resetting||config.resetPending.get()?'重置尚未完成，请在 Bots 页面重试。':'旧会话关联已重置，此会话仅保留历史。请从 Bots 页面创建新的主 Bot 对话，或在其他工作区新建群聊。'
       addRows(agent,[{id:randomUUID(),author:'notice',text}]);await ctx.sessions.flush(agent.session);return {kind:'reject'}

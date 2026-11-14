@@ -2,7 +2,7 @@ import { fixtureLibrary } from './fixtures.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Config } from '../src/config.ts'
-import { defaultLibrary, discussionTopic, freshCoordinator, parsePlan, resolveTargets, selectMembers, validateLibrary } from '../src/bots.ts'
+import { defaultLibrary, discussionTopic, freshCoordinator, parsePlan, resolveTargets, selectMembers, requestedBotDeletion, updateRequestedBot, validateLibrary } from '../src/bots.ts'
 import { projection } from '../src/projection.ts'
 
 test('catalog validates identity, duties, reserved names, normalized duplicates and integer limits', () => {
@@ -138,4 +138,38 @@ test('King Arthur preserves a structured existing-group operation and rejects mi
   assert.deepEqual(parsePlan(JSON.stringify({ existingGroupAction: action }), []).existingGroupAction, action)
   assert.throws(() => parsePlan(JSON.stringify({ existingGroupAction: action, groupAction: { title: '替代群' } }), []))
   assert.equal(parsePlan('{"reply":"你好","existingGroupAction":null}', []).existingGroupAction, undefined)
+})
+
+test('King Arthur can edit a child Bot by ID with current user evidence', () => {
+  const evidence = '把架构师改名为设计助手，职责改为绘制架构图'
+  const request = { botId: 'architect', name: '设计助手', duty: '绘制架构图', evidence }
+  const changed = updateRequestedBot(fixtureLibrary, request, evidence)
+  assert.deepEqual(changed.bot, { ...fixtureLibrary.bots[0], name: '设计助手', duty: '绘制架构图' })
+  assert.deepEqual(changed.library.bots[1], fixtureLibrary.bots[1])
+  assert.throws(() => updateRequestedBot(fixtureLibrary, request, '不要' + evidence))
+  assert.throws(() => updateRequestedBot(fixtureLibrary, request, '> ' + evidence))
+  assert.throws(() => updateRequestedBot(fixtureLibrary, { ...request, botId: 'reviewer' }, evidence))
+  assert.throws(() => updateRequestedBot(fixtureLibrary, { ...request, name: '另一个名字' }, evidence))
+  assert.throws(() => updateRequestedBot(fixtureLibrary, { ...request, name: '审阅员', evidence: '把架构师改名为审阅员' }, '把架构师改名为审阅员'))
+})
+
+test('conversational deletion requires the current user to explicitly name the selected child', () => {
+  const request = { botId: 'reviewer' }
+  assert.equal(requestedBotDeletion(fixtureLibrary, request, '请删除「审阅员」。')[0].id, 'reviewer')
+  for (const text of ['不要删除审阅员', '如何删除审阅员？', '请删除架构师', '如果删除审阅员会怎样', '> 删除审阅员', '请删除审阅员和架构师']) {
+    assert.throws(() => requestedBotDeletion(fixtureLibrary, request, text))
+  }
+  assert.throws(() => requestedBotDeletion(fixtureLibrary, { botId: 'coordinator' }, '请删除 King Arthur'))
+})
+
+test('conversational deletion supports colloquial requests, named batches, and all children', () => {
+  const library = { ...fixtureLibrary, bots: fixtureLibrary.bots.map(bot => ({ ...bot, archived: bot.id === 'reviewer' })) }
+  for (const text of ['删除全部子bot', '把子 Bot 都删掉吧', '清空子Bot', '麻烦把所有子机器人移除', 'please delete all child bots']) {
+    assert.deepEqual(requestedBotDeletion(library, { all: true }, text), library.bots, text)
+  }
+  assert.deepEqual(requestedBotDeletion(library, { botIds: ['architect', 'reviewer'] }, '把架构师和审阅员一起删掉').map(bot => bot.id), ['architect', 'reviewer'])
+  assert.equal(requestedBotDeletion(library, { botId: 'reviewer' }, '麻烦把「审阅员」删了吧')[0].id, 'reviewer')
+  for (const text of ['不要删除全部子Bot', '删除全部子Bot吗？', '删除全部子Bot，除了审阅员', '删除全部群聊', '删除子Bot', '删除审阅员', '删除 King Arthur']) {
+    assert.throws(() => requestedBotDeletion(library, { all: true }, text), undefined, text)
+  }
 })
