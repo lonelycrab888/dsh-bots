@@ -20,11 +20,11 @@
       "versions": [
         {
           "version": "0.4.3",
-          "publishTimestamp": 1794646019,
+          "publishTimestamp": 1794647844,
           "source": {
             "type": "git",
             "url": "https://github.com/lonelycrab888/roundtable-bots",
-            "commit": "3eea2c7eb1a6b922cd6ae967e9a313fc95b0f60d"
+            "commit": "2334e05ee48ffc8789646d5fd64b005e0563ad6d"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.2"
