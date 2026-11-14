@@ -81,12 +81,30 @@ export function followsCurrentDiscussion(text: string): boolean {
     /^(?:请)?整合当前[\s\S]*继续(?:组织|讨论|推进)/u.test(value)
 }
 
-export async function resolveDiscussionIntent(text: string, hasActiveTask: boolean, classify: () => Promise<string>): Promise<DiscussionIntent> {
+export async function resolveDiscussionIntent(
+  text: string,
+  hasActiveTask: boolean,
+  classify?: (attempt: number) => Promise<string>,
+  options: { signal?: AbortSignal; onFailure?: (reason: 'request' | 'timeout' | 'invalid-output', attempt: number) => void } = {},
+): Promise<DiscussionIntent> {
+  options.signal?.throwIfAborted()
   if (hasActiveTask && followsCurrentDiscussion(text)) return { kind: 'continue' }
-  try { return parseDiscussionIntent(await classify(), text) }
-  catch { return { kind: 'unavailable' } }
+  if (/^(?:请)?(?:汇报|说一下|告诉我)?[\s]*(?:当前进度|现在进度|你们现在做到哪了|进展如何|what(?:'s| is) the current status)[。.!！?？]*$/iu.test(coordinatorMessage(text))) return { kind: 'status' }
+  if (!classify) return { kind: 'unavailable' }
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    let output: string
+    try { output = await classify(attempt) }
+    catch (error) {
+      options.signal?.throwIfAborted()
+      options.onFailure?.(error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'request', attempt)
+      continue
+    }
+    options.signal?.throwIfAborted()
+    try { return parseDiscussionIntent(output, text) }
+    catch { options.onFailure?.('invalid-output', attempt) }
+  }
+  return { kind: 'unavailable' }
 }
-
 
 export function moderatorReplyContext(text: string): string {
   const head = excerpt(text, 1800)

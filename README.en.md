@@ -247,6 +247,10 @@ Personal memory has no fixed entry-count limit. Each entry supports **600 charac
 
 **Clear page** archives the current window and creates a blank context, retaining personal and shared group memories. Each Bot has one current private conversation; older windows are history only. **Reset King memory** clears King Arthur's personal entries and replaces its window, retaining child memories and shared group history. Removing a memory does not delete original chat messages.
 
+## v0.4.4: group message intent
+
+Clear progress questions return status directly. Model-based classification uses shorter historical context and keeps the latest message intact. A failed request, timeout, or invalid response gets one bounded retry. If both attempts fail, the group retains the message and progress and asks whether to continue the topic or start a new task. Logs record the failure category and attempt number.
+
 ## v0.4.3: memory use in long group chats
 
 The main Bot is now **King Arthur**. Existing private conversations, internal IDs and memory stores are retained; old main-chat titles update when opened. Mentions support `@King Arthur`, including the space, and legacy main-Bot names remain compatible.
@@ -300,6 +304,6 @@ Automated coverage includes persistence and retrieval beyond 32 memories, reopen
 
 `npm run smoke` (also available as `npm run smoke:native`) uses Chrome, the Playwright CLI, and an isolated Web profile. It checks native conversation continuity, file reads, search, Bot and group creation, message delivery, memory after restart, continuation among several old topics, pending operations, intent-classifier failure, clear page, context isolation after memory reset, and group greetings. It also checks downloaded bytes and filenames, uploaded files after restart, manual New Session blocking in the King workspace, automatic unique child windows, personal memory isolation, cross-group retrieval and reasoning persistence. The deterministic model fixture verifies execution paths, not real-model response quality.
 
-The current implementation passed type checking, 104 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
+The current implementation passed type checking, 105 automated tests, and this integration suite. Reset behavior was also checked through the UI in an isolated profile with synthetic data.
 
 `npm run test:memory` streams a synthetic legacy journal of about 325 MiB decompressed under a 96 MiB V8 heap limit. This checks plugin replay allocations, not total host memory. The browser smoke test also covers 80-message paging, downloads from older pages and cold-journal recall after restart.

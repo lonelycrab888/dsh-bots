@@ -957,6 +957,8 @@ export async function apply(ctx: Context, config: Config) {
             try {
               intent = await classifyDiscussionInput(agent, group, original, modelSelection,
                 AbortSignal.any([turnSignal, interpreting.signal, ...interjection ? [interjection.controller.signal] : []]))
+            } catch (error) {
+              if (!interpreting.signal.aborted && !interjection?.controller.signal.aborted) throw error
             } finally {
               if (activeDiscussions.get(agent) === interpreting) activeDiscussions.delete(agent)
             }
@@ -967,7 +969,7 @@ export async function apply(ctx: Context, config: Config) {
       turnSignal.throwIfAborted()
       if (interjection?.controller.signal.aborted) { preserve(); continue }
       if (intent && (intent.kind === 'pause' || intent.kind === 'clarify' || intent.kind === 'status' || intent.kind === 'unavailable')) {
-        const prompt = intent.kind === 'unavailable' ? '这次识别新消息的请求失败了，当前议题和进度已保留。请重发这条要求，或点击继续讨论。'
+        const prompt = intent.kind === 'unavailable' ? '已保留你的消息和当前进度。请说明这条消息是补充当前议题，还是另开新任务。如果想按原议题推进，可以点击「继续讨论」。'
           : intent.kind === 'status' ? groupProgress(group)
           : intent.kind === 'clarify' ? '我先暂停派发。你是想调整当前议题，还是开始一项新任务？'
           : '已暂停讨论。接下来你想让大家讨论或完成什么？'
@@ -1024,26 +1026,34 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   async function classifyDiscussionInput(parent: Agent, group: Group, text: string, model: ModelSelection | undefined, signal: AbortSignal): Promise<DiscussionIntent> {
-    const main = ensureCoordinator(parent)
-    const fallback: DiscussionIntent = { kind: 'unavailable' }
-    if (!model) return fallback
     const task = group.tasks?.find(item => item.id === group.activeTaskId)
     const digest = task && taskDigest(task, group.rows)
     const prompt = JSON.stringify({
-      当前议题: task?.goal ?? group.rows.findLast(row => row.author === 'user' && !row.control)?.text,
-      用户最近要求: digest?.user.slice(-6).map(row => row.text),
+      当前议题: excerpt(task?.goal ?? group.rows.findLast(row => row.author === 'user' && !row.control)?.text ?? '', 700),
+      用户最近要求: digest?.user.slice(-4).map(row => excerpt(row.text, 350)),
       已有结论: digest?.result ? moderatorReplyContext(digest.result.text) : undefined,
       已完成发言: digest?.completed.slice(-6).map(item => ({ 成员: item.name, 内容: item.text.slice(0, 700) })),
-      未完成点: digest?.questions.slice(-6),
+      未完成点: digest?.questions.slice(-4).map(question => excerpt(question, 200)),
       待用户回答: task?.question?.text,
       用户新消息: text,
     })
     const instructions = '判断群聊用户新消息的语义，依据当前议题、已有进度和最新原文。回答待确认问题、补充或更正当前要求用 {"kind":"continue"}。只询问当前进度用 {"kind":"status"}。要等用户、暂停或停止用 {"kind":"pause"}。用户明确交办一个具体的新任务才用 {"kind":"redirect","task":"原文中的完整新任务"}。需要确认方向时用 {"kind":"clarify"}。只输出 JSON。'
-    return resolveDiscussionIntent(text, Boolean(task && task.status !== 'ended'), async () => {
+    return resolveDiscussionIntent(text, Boolean(task && task.status !== 'ended'), model ? async attempt => {
+      const main = ensureCoordinator(parent)
       const scope = { ...group, coordinator: main, rows: [], brief: undefined }
       const memory: KingMemory = { enabled: false, autoRemember: false, entries: [] }
-      return askBot(parent, scope, { ...main, sessionId: randomUUID() }, prompt, model,
-        AbortSignal.any([signal, AbortSignal.timeout(30_000)]), instructions, memory)
+      const deadline = AbortSignal.timeout(attempt === 1 ? 20_000 : 10_000)
+      try {
+        return await askBot(parent, scope, { ...main, sessionId: randomUUID() }, prompt, model,
+          AbortSignal.any([signal, deadline]), instructions + (attempt === 2 ? '这是识别重试。直接输出一个完整 JSON 对象；无法确定方向时用 {"kind":"clarify"}。' : ''), memory)
+      } catch (error) {
+        signal.throwIfAborted()
+        deadline.throwIfAborted()
+        throw error
+      }
+    } : undefined, {
+      signal,
+      onFailure: (reason, attempt) => ctx.logger.warn(`dsh-bots: group intent ${reason}, attempt ${attempt}, session ${parent.id}`),
     })
   }
 

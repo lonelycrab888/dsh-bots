@@ -279,6 +279,7 @@ class Fixture extends LlmAdapter {
       }
       if (summarizing) text = 'V040-RECOVERED ' + state.最新用户消息
     }
+    if (intentCheck && JSON.parse(latest).用户新消息.includes('V040-INTENT-RETRY') && !systemText.includes('这是识别重试')) text = 'invalid classifier output'
     if (intentCheck && JSON.parse(latest).用户新消息.includes('V040-INTENT-FAIL')) text = 'invalid classifier output'
     const nativeKing = systemText.includes('你是 King Arthur，用户的通用助手')
     if (nativeKing && input.includes('V040-')) {

@@ -120,3 +120,23 @@ test('group greetings and thanks reply directly, while tasks and member mentions
  for(const text of ['你好','你好！','大家好','@King Arthur 你好','@king arthur 你好','@KingBot 你好','谢谢','@主Bot 在吗？','Hi everyone!','你是谁']) assert.ok(groupSmallTalkReply(text),text)
  for(const text of ['你好，请帮我写初稿','谢谢，继续讨论','@调研专家 你好','@调研专家 @审阅员 你好','可以，就按你说的做','请解释“你好”的意思','hello world 程序怎么写','早期项目分析','好的，继续','好','可以']) assert.equal(groupSmallTalkReply(text),undefined,text)
 })
+
+test('intent retries invalid output and timeouts but stops on cancellation', async () => {
+  const failures: string[] = []
+  const options = { onFailure: (reason: string) => failures.push(reason) }
+  const text = '重新核对预算'
+  assert.deepEqual(await resolveDiscussionIntent(text, true, async attempt =>
+    attempt === 1 ? 'incomplete JSON' : '{"kind":"continue"}', options), { kind: 'continue' })
+  assert.deepEqual(await resolveDiscussionIntent(text, true, async attempt => {
+    if (attempt === 1) throw new DOMException('Timed out', 'TimeoutError')
+    return '{"kind":"redirect","task":"重新核对预算"}'
+  }, options), { kind: 'redirect', task: text })
+  assert.deepEqual(failures, ['invalid-output', 'timeout'])
+  const controller = new AbortController()
+  await assert.rejects(resolveDiscussionIntent(text, true, async attempt => {
+    assert.equal(attempt, 1)
+    controller.abort()
+    throw controller.signal.reason
+  }, { signal: controller.signal }), { name: 'AbortError' })
+  assert.deepEqual(await resolveDiscussionIntent('你们现在做到哪了？', true), { kind: 'status' })
+})

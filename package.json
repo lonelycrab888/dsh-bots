@@ -1,6 +1,6 @@
 {
   "name": "roundtable-bots",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Named Bots and group conversations for DeepSeek Harness.",
   "icon": "./assets/roundtable-bots-icon-v2.png",
   "type": "module",

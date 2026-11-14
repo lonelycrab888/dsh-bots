@@ -645,7 +645,8 @@ try {
       for (const text of ['可以，就按照你说的做', '我的意思是按照你说的这个做，先把「1. 进展」成文，作为立项书开篇。现在就出这一段初稿', '已核对，继续', '@King Arthur 整合当前调研专家的所有结果，继续组织大家按照开始时的议题讨论。']) {
         await send(text, 'V040-RECOVERED ' + text)
       }
-      await send('V040-INTENT-FAIL 重新看一下这些材料', '这次识别新消息的请求失败了，当前议题和进度已保留。请重发这条要求，或点击继续讨论。')
+      await send('V040-INTENT-RETRY 重新看一下这些材料', 'V040-RECOVERED V040-INTENT-RETRY 重新看一下这些材料')
+      await send('V040-INTENT-FAIL 重新看一下这些材料', '已保留你的消息和当前进度。请说明这条消息是补充当前议题，还是另开新任务。')
       await send('@King Arthur 继续组织大家基于现有结果按照开始时的议题讨论。', 'V040-RECOVERED @King Arthur 继续组织大家基于现有结果按照开始时的议题讨论。')
       if (await log.getByText(/你想处理哪个议题|你是想调整当前议题/).count()) throw new Error('Unexpected clarification loop')
     }).toString())
