@@ -19,6 +19,18 @@
       },
       "versions": [
         {
+          "version": "0.4.4",
+          "publishTimestamp": 1794653073,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/lonelycrab888/roundtable-bots",
+            "commit": "00d216e91bd9db44b54bddb6b1faab5b902c6bd0"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.2"
+          }
+        },
+        {
           "version": "0.4.3",
           "publishTimestamp": 1794648162,
           "source": {
