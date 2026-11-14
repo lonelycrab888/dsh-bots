@@ -68,7 +68,7 @@ async function exerciseNativeBots() {
     const button=name=>page.getByRole('button',{name,exact:true})
     const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
     async function send(text,expected){const replies=page.getByText(expected,{exact:false});const before=await replies.count();await editor.fill(text);await button('发送消息').click();await replies.nth(before).waitFor({timeout:20000})}
-    const kingRowBefore=page.getByRole('treeitem',{name:/^KingBot/}).and(page.locator('[data-row-key^="session:"]')).first()
+    const kingRowBefore=page.getByRole('treeitem',{name:/^King Arthur/}).and(page.locator('[data-row-key^="session:"]')).first()
     const account=kingRowBefore.locator('xpath=ancestor::div[.//*[@data-row-key and starts-with(@data-row-key,"workspace:")]][1]')
     const before=await account.locator('[data-row-key^="session:"]').count()
     const create=account.locator('[data-row-key^="workspace:"] button:not([aria-haspopup])')
@@ -77,19 +77,19 @@ async function exerciseNativeBots() {
     if(!await create.isDisabled())throw new Error('King workspace New Session must be disabled')
     if(!await page.locator('[data-row-key^="workspace:"] button:not([aria-haspopup]):enabled').count())throw new Error('Other workspace creation was disabled')
     await button('新建会话').last().click()
-    await page.getByText('KingBot 工作区不允许手动新建会话。',{exact:false}).last().waitFor()
+    await page.getByText('King Arthur 工作区不允许手动新建会话。',{exact:false}).last().waitFor()
     if(await account.locator('[data-row-key^="session:"]').count()!==before)throw new Error('New Session created an orphan in the King workspace')
     await send('V041-WINDOWS 创建 Bot 后核对独聊','V041-WINDOWS-DONE')
     await send('V041-CREATE-SECOND 用版本助手创建共享记忆二群','V041-SECOND-DONE')
     await button('Roundtable').click();await button('版本助手').click();await button('与 版本助手 对话').click()
     await button('清空页面').waitFor()
     if(await page.locator('.dsh-bots-group-scroll').count())throw new Error('Child private chat hides native timeline')
-    const kingRow=page.getByRole('treeitem',{name:/^KingBot/}).and(page.locator('[data-row-key^="session:"]')).first()
+    const kingRow=page.getByRole('treeitem',{name:/^King Arthur/}).and(page.locator('[data-row-key^="session:"]')).first()
     for(const row of await kingRow.locator('xpath=ancestor::div[.//*[@data-row-key and starts-with(@data-row-key,"workspace:")]][1]').locator('[data-row-key^="session:"]').all()) {
-      if(await row.isVisible() && (await row.boundingBox()).y < (await kingRow.boundingBox()).y)throw new Error('Blank child displaced KingBot')
+      if(await row.isVisible() && (await row.boundingBox()).y < (await kingRow.boundingBox()).y)throw new Error('Blank child displaced King Arthur')
     }
     await button('新建会话').last().click()
-    await page.getByText('KingBot 工作区不允许手动新建会话。',{exact:false}).last().waitFor()
+    await page.getByText('King Arthur 工作区不允许手动新建会话。',{exact:false}).last().waitFor()
     await send('V041-CHAT-A 聊一下今天的天气 BOT-TEMP-846','V041-CHAT-DONE')
     await send('V041-READ 读取 native.txt','V041-READ-DONE')
     await send('V041-REMEMBER 请记住我希望使用蓝色图表 BOT-PRIVATE-741','V041-REMEMBER-DONE')
@@ -99,7 +99,7 @@ async function exerciseNativeBots() {
     await button('清空页面').click();await button('确认清空页面').click()
     await page.getByText('V041-CHAT-A 聊一下今天的天气 BOT-TEMP-846',{exact:true}).waitFor({state:'hidden'}).catch(async error=>{throw new Error(error.message+' UI: '+await page.locator('.dsh-bots-king-actions').innerText())})
     await send('V041-CLEAR 检查独聊记忆','V041-CLEAR-DONE')
-    await button('Roundtable').click();await button('KingBot').click();await button('与 KingBot 对话').click()
+    await button('Roundtable').click();await button('King Arthur').click();await button('与 King Arthur 对话').click()
     await send('V041-ISOLATION 检查主 Bot 没有子 Bot 的私人记忆','V041-ISOLATION-DONE')
     await send('V041-WINDOWS 清空后核对独聊','V041-WINDOWS-DONE')
   }).toString())
@@ -118,7 +118,7 @@ async function exerciseNativeBots() {
     await button('Roundtable').click();await button('版本助手').click();await button('与 版本助手 对话').click()
     await editor.fill('V041-SHARED 读取所有群聊记忆');await button('发送消息').click()
     await page.getByText('V041-SHARED-DONE',{exact:false}).last().waitFor()
-    await button('Roundtable').click();await button('KingBot').click();await button('与 KingBot 对话').click()
+    await button('Roundtable').click();await button('King Arthur').click();await button('与 King Arthur 对话').click()
     await editor.fill('V041-SHARED 读取所有群聊记忆');await button('发送消息').click()
     await page.getByText('V041-SHARED-DONE',{exact:false}).last().waitFor()
   }).toString())
@@ -141,9 +141,9 @@ async function exerciseNativeBots() {
     await page.getByRole('treeitem',{name:/共享记忆二群/}).first().click()
     await page.locator('.dsh-bots-reasoning summary').last().click()
     await page.getByText('V041-THINK 模型返回的思考片段。后续片段已保留。',{exact:false}).last().waitFor()
-    const kingRow=page.getByRole('treeitem',{name:/^KingBot/}).and(page.locator('[data-row-key^="session:"]')).first()
+    const kingRow=page.getByRole('treeitem',{name:/^King Arthur/}).and(page.locator('[data-row-key^="session:"]')).first()
     for(const row of await kingRow.locator('xpath=ancestor::div[.//*[@data-row-key and starts-with(@data-row-key,"workspace:")]][1]').locator('[data-row-key^="session:"]').all()) {
-      if(await row.isVisible() && (await row.boundingBox()).y < (await kingRow.boundingBox()).y)throw new Error('KingBot must be visually first in the workspace')
+      if(await row.isVisible() && (await row.boundingBox()).y < (await kingRow.boundingBox()).y)throw new Error('King Arthur must be visually first in the workspace')
     }
     await page.screenshot({path:SCREENSHOT,fullPage:true})
   }).toString().replace('SCREENSHOT',JSON.stringify(decodeURIComponent(new URL('../output/playwright/v0.4.1-group-reasoning.png',import.meta.url).pathname))))
@@ -213,6 +213,50 @@ async function exerciseGroupDownloads(workspace, uploadedPath) {
   console.log('Verified group file downloads: relative/absolute/file/sandbox links, original binary bytes and Chinese filenames, uploaded copies after original deletion and restart, missing-file feedback and safe web links.')
 }
 
+async function exerciseHistoryPages() {
+  browser('run-code',(async page=>{
+    const button=name=>page.getByRole('button',{name,exact:true})
+    const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
+    await button('Roundtable').click();await button('King Arthur').click();await button('与 King Arthur 对话').click()
+    await editor.fill('V043-SEED 增加隔离测试历史');await button('发送消息').click()
+    await page.getByText('V043-SEEDED',{exact:false}).last().waitFor()
+    await button('搜索会话').click();await page.getByPlaceholder(/搜索会话名称/).fill('共享记忆二群')
+    await page.getByRole('treeitem',{name:/共享记忆二群/}).first().click()
+    const log=page.getByRole('log',{name:'群聊时间线'})
+    await log.getByText('V043-HISTORY-159 原始历史记录',{exact:true}).waitFor()
+    if(await log.locator('[data-row-id]').count()>80)throw new Error('Live history exceeds page limit')
+    await page.getByText(/V043 旧议题.*已收到 1 条发言/).waitFor()
+    await page.getByText('查看议题摘要',{exact:true}).click()
+    await page.getByText('V043-OLD-SUMMARY 历史汇总',{exact:true}).waitFor()
+    await button('原汇总').click()
+    await log.getByText('V043-OLD-SUMMARY 历史汇总',{exact:true}).waitFor()
+    await button('返回最新').click()
+    await log.getByText('V043-HISTORY-159 原始历史记录',{exact:true}).waitFor()
+    await button('更早记录').click()
+    await log.getByText('V043-HISTORY-0 原始历史记录',{exact:true}).waitFor()
+    if(await log.locator('[data-row-id]').count()>80)throw new Error('History pages accumulated')
+    await button('更早记录').click()
+    await log.getByText('V042-FILES-DONE',{exact:false}).last().waitFor()
+    const downloading=page.waitForEvent('download')
+    await log.getByRole('button',{name:'outside workspace.md（下载）',exact:true}).last().click()
+    if((await downloading).suggestedFilename()!=='outside workspace.md')throw new Error('Historical attachment unavailable')
+    await button('返回最新').click()
+    await log.getByText('V043-HISTORY-159 原始历史记录',{exact:true}).waitFor()
+  }).toString())
+  await stopHost();browser('goto',await startHost())
+  browser('run-code',(async page=>{
+    const button=name=>page.getByRole('button',{name,exact:true})
+    await button('Roundtable').click();await button('King Arthur').click();await button('与 King Arthur 对话').click()
+    const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
+    await editor.fill('V043-RECALL 检索旧历史');await button('发送消息').click()
+    await page.getByText('V043-RECALLED',{exact:false}).last().waitFor()
+    await page.getByText(/V043-RECALLED.*V043-HISTORY-0/).last().waitFor()
+    await page.getByRole('treeitem',{name:/^King Arthur/}).first().waitFor()
+    if(await page.getByRole('treeitem',{name:/^KingBot/}).count())throw new Error('Old main title was not migrated')
+  }).toString())
+  console.log('Verified bounded live/history pages, historical attachment download and inactive group recall after restart.')
+}
+
 async function exerciseExistingGroups() {
   await stopHost()
   browser('goto', await startHost())
@@ -224,9 +268,9 @@ async function exerciseExistingGroups() {
     const log = page.getByRole('log', { name: '群聊时间线' })
     async function king() {
       await button('Roundtable').click()
-      await button('KingBot').click()
-      await button('与 KingBot 对话').click()
-      await page.getByRole('region', { name: 'KingBot 专属对话' }).waitFor()
+      await button('King Arthur').click()
+      await button('与 King Arthur 对话').click()
+      await page.getByRole('region', { name: 'King Arthur 专属对话' }).waitFor()
     }
     async function send(text) {
       await editor.fill(text)
@@ -235,14 +279,14 @@ async function exerciseExistingGroups() {
     await king()
     const target = '@架构师 给出架构说明'
     await send(`你进『${target}』群了吗，帮我发一条`)
-    await log.getByText(/由 KingBot 主持.*就发/s).waitFor()
+    await log.getByText(/由 King Arthur 主持.*就发/s).waitFor()
     await send(`就发『NOTICE_TEXT』`)
-    const receipt = log.getByRole('status').filter({ hasText: /已以 KingBot 身份发送到/ })
+    const receipt = log.getByRole('status').filter({ hasText: /已以 King Arthur 身份发送到/ })
     await receipt.waitFor()
     await receipt.getByRole('button', { name: '打开群聊' }).click()
     const posted = log.locator('article[data-author=bot]').filter({ hasText: 'NOTICE_TEXT' })
     await posted.waitFor()
-    if (await posted.count() !== 1 || !await posted.getByText('@KingBot', { exact: true }).count()) throw new Error('Notice did not preserve text and author')
+    if (await posted.count() !== 1 || !await posted.getByText('@King Arthur', { exact: true }).count()) throw new Error('Notice did not preserve text and author')
     await king()
     await send(`看一下『${target}』聊到哪了`)
     await log.locator('article[data-author=bot]').last().getByText(/当前议题|已有结论|阶段结果/).waitFor()
@@ -295,7 +339,7 @@ async function exerciseLongReplies() {
       await log.getByText('20:10 交接确认 P036-TIMELINE-END', { exact: true }).nth(previous).waitFor()
       await button('停止生成').waitFor({ state: 'hidden' })
     }
-    await log.getByText(/KingBot 未能生成汇总/).waitFor()
+    await log.getByText(/King Arthur 未能生成汇总/).waitFor()
     await log.getByText(/尚未收到 @?架构师 的有效回复/).waitFor()
     if (await log.getByText('20:10 交接确认 P036-TIMELINE-END', { exact: true }).count() < 3) {
       throw new Error('The summary fallback must retain the end of the original reply')
@@ -335,8 +379,8 @@ async function exerciseTaskRecovery(defaultWorkspace) {
   browser('run-code', (async page => {
     const button = name => page.getByRole('button', { name, exact: true })
     await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-    await button('KingBot').click()
-    await button('与 KingBot 对话').click()
+    await button('King Arthur').click()
+    await button('与 King Arthur 对话').click()
     const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
     await editor.fill('请为验收恢复任务建群，邀请 @架构师 和 @审阅员，讨论两份依据并回传结论')
     await editor.press('Enter')
@@ -363,8 +407,8 @@ async function exerciseTaskRecovery(defaultWorkspace) {
     await button('汇总已有结果').evaluate(button => { button.click(); button.click() })
     await page.getByRole('log').getByText(/尚未收到 @?架构师/).waitFor()
     await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-    await button('KingBot').click()
-    await button('与 KingBot 对话').click()
+    await button('King Arthur').click()
+    await button('与 King Arthur 对话').click()
     const log = page.getByRole('log')
     const phase = log.locator('article').filter({ hasText: /群聊阶段结果/ })
     await phase.waitFor()
@@ -373,7 +417,7 @@ async function exerciseTaskRecovery(defaultWorkspace) {
     const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
     await editor.fill('已核对，继续')
     await editor.press('Enter')
-    await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
+    await log.getByText(/^@?King Arthur \| 讨论汇总完成$/u).waitFor()
   }).toString())
   await stopHost()
 
@@ -411,8 +455,8 @@ async function exerciseTaskRecovery(defaultWorkspace) {
     browser('goto', await startHost())
     browser('run-code', (async page => {
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
-      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
+      await page.getByRole('button', { name: 'King Arthur', exact: true }).click()
+      await page.getByRole('button', { name: '与 King Arthur 对话', exact: true }).click()
       const recovered = page.locator('[data-row-id="' + RECOVERED_ID + '"]')
       await recovered.waitFor()
       if (await recovered.count() !== 1) throw new Error('Duplicate final delivery')
@@ -493,10 +537,10 @@ try {
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).waitFor()
       if (await preview.isVisible()) await preview.click()
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-      await button('KingBot').click()
-      await page.getByRole('textbox', { name: 'KingBot 工作区目录' }).fill(WORKSPACE)
+      await button('King Arthur').click()
+      await page.getByRole('textbox', { name: 'King Arthur 工作区目录' }).fill(WORKSPACE)
       await button('启用工作区').click()
-      await button('与 KingBot 对话').click()
+      await button('与 King Arthur 对话').click()
       const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
       async function send(text, expected) {
         await editor.fill(text)
@@ -522,8 +566,8 @@ try {
     browser('run-code', (async page => {
       const button = name => page.getByRole('button', { name, exact: true })
       await button('Roundtable').click()
-      await button('KingBot').click()
-      await button('与 KingBot 对话').click()
+      await button('King Arthur').click()
+      await button('与 King Arthur 对话').click()
       await page.getByText('V040-ANSWER 自然语言回答', { exact: false }).last().waitFor()
       const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
       await editor.fill('V040-RECALL 还记得我的偏好吗')
@@ -550,14 +594,15 @@ try {
       await log.getByText('V040-SEEDED', { exact: true }).waitFor()
       const beforeGreeting = await log.locator('article[data-author=bot]').count()
       await send('你好', '有什么可以帮你？')
-      await send('@KingBot 谢谢', '不客气，有需要随时告诉我。')
-      if (await log.locator('article[data-author=bot]').count() !== beforeGreeting + 2) throw new Error('Small talk dispatched group members')
+      await send('@King Arthur 谢谢', '不客气，有需要随时告诉我。')
+      await send('@KingBot 在吗', '我在，请说。')
+      if (await log.locator('article[data-author=bot]').count() !== beforeGreeting + 3) throw new Error('Small talk dispatched group members')
 
-      for (const text of ['可以，就按照你说的做', '我的意思是按照你说的这个做，先把「1. 进展」成文，作为立项书开篇。现在就出这一段初稿', '已核对，继续', '@KingBot 整合当前调研专家的所有结果，继续组织大家按照开始时的议题讨论。']) {
+      for (const text of ['可以，就按照你说的做', '我的意思是按照你说的这个做，先把「1. 进展」成文，作为立项书开篇。现在就出这一段初稿', '已核对，继续', '@King Arthur 整合当前调研专家的所有结果，继续组织大家按照开始时的议题讨论。']) {
         await send(text, 'V040-RECOVERED ' + text)
       }
       await send('V040-INTENT-FAIL 重新看一下这些材料', '这次识别新消息的请求失败了，当前议题和进度已保留。请重发这条要求，或点击继续讨论。')
-      await send('@KingBot 继续组织大家基于现有结果按照开始时的议题讨论。', 'V040-RECOVERED @KingBot 继续组织大家基于现有结果按照开始时的议题讨论。')
+      await send('@King Arthur 继续组织大家基于现有结果按照开始时的议题讨论。', 'V040-RECOVERED @King Arthur 继续组织大家基于现有结果按照开始时的议题讨论。')
       if (await log.getByText(/你想处理哪个议题|你是想调整当前议题/).count()) throw new Error('Unexpected clarification loop')
     }).toString())
     const recovery = (await requests()).filter(call => call.moderator && call.input.includes('V040-RECOVERY'))
@@ -572,8 +617,8 @@ try {
     browser('run-code', (async page => {
       const button = name => page.getByRole('button', {name,exact:true})
       await button('Roundtable').click()
-      await button('KingBot').click()
-      await button('与 KingBot 对话').click()
+      await button('King Arthur').click()
+      await button('与 King Arthur 对话').click()
       const editor = page.getByRole('textbox', { name: /调用指令|commands/i }).and(page.locator('[contenteditable="true"]'))
       await editor.fill('V040-PAGE-CANARY 临时暗号 TEMP-PAGE-902')
       await button('发送消息').click()
@@ -589,7 +634,7 @@ try {
     browser('run-code', (async page => {
       const button = name => page.getByRole('button',{name,exact:true})
       await button('Roundtable').click()
-      await button('KingBot').click()
+      await button('King Arthur').click()
       await button('管理工作区记忆').click()
       await page.getByText(/已保存 1 条有效记忆/).waitFor()
       await button('返回 Roundtable').click()
@@ -600,10 +645,10 @@ try {
       await button('清空页面').waitFor()
       await page.getByText('V040-CLEAR-DONE',{exact:false}).waitFor({state:'hidden'})
       await button('Roundtable').click()
-      await button('KingBot').click()
+      await button('King Arthur').click()
       await button('管理工作区记忆').click()
       await page.getByText(/已保存 0 条有效记忆/).waitFor()
-      await button('与 KingBot 对话').click()
+      await button('与 King Arthur 对话').click()
       if (await page.getByText('V040-CLEAR-DONE',{exact:false}).count()) throw new Error('Memory reset retained old native conversation')
       const editor = page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
       await editor.fill('V040-CHECK-RESET 重置后核对')
@@ -614,13 +659,13 @@ try {
     browser('goto',await startHost())
     browser('run-code',(async page=>{
       const button=name=>page.getByRole('button',{name,exact:true})
-      await button('Roundtable').click();await button('KingBot').click();await button('与 KingBot 对话').click()
+      await button('Roundtable').click();await button('King Arthur').click();await button('与 King Arthur 对话').click()
       const editor=page.getByRole('textbox',{name:/调用指令|commands/i}).and(page.locator('[contenteditable="true"]'))
       await editor.fill('V040-CHECK-RESET 重启后核对');await button('发送消息').click()
       await page.getByText('V040-RESET-DONE',{exact:false}).last().waitFor()
     }).toString())
     const updated = await requests()
-    assert.equal(updated.filter(call=>call.input==='你好'||call.input==='@KingBot 谢谢').length,0)
+    assert.equal(updated.filter(call=>call.input==='你好'||call.input==='@King Arthur 谢谢').length,0)
     const clear = updated.find(call=>call.input==='V040-CHECK-CLEAR 清空后核对')
     const reset = updated.find(call=>call.input==='V040-CHECK-RESET 重置后核对')
     const restart = updated.find(call=>call.input==='V040-CHECK-RESET 重启后核对')
@@ -632,6 +677,7 @@ try {
     console.log('Verified native King conversation, root session continuity, native file tool, Bot creation, group creation, message delivery and restart memory.')
     await exerciseNativeBots()
     await exerciseGroupDownloads(defaultWorkspace, documentPath)
+    await exerciseHistoryPages()
   } else {
   browser('run-code', (async page => {
     const upgrading = process.env.DSH_BOTS_SMOKE_UPGRADE
@@ -642,12 +688,12 @@ try {
     if (await preview.isVisible()) await preview.click()
     await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
     await page.getByText('尚未创建子 Bot。点击“新建 Bot”定义名称和职责，再创建群聊。', { exact: true }).waitFor()
-    const kingEntry = page.getByRole('button', { name: 'KingBot', exact: true })
-    await kingEntry.or(page.getByRole('textbox', { name: /^(KingBot|Bots King) 工作区目录$/ })).first().waitFor()
+    const kingEntry = page.getByRole('button', { name: 'King Arthur', exact: true })
+    await kingEntry.or(page.getByRole('textbox', { name: /^(King Arthur|Bots King) 工作区目录$/ })).first().waitFor()
     if (await kingEntry.isVisible()) await kingEntry.click()
-    await page.getByRole('textbox', { name: /^(KingBot|Bots King) 工作区目录$/ }).fill(process.env.DSH_BOTS_SMOKE_WORKSPACE)
+    await page.getByRole('textbox', { name: /^(King Arthur|Bots King) 工作区目录$/ }).fill(process.env.DSH_BOTS_SMOKE_WORKSPACE)
     await page.getByRole('button', { name: '启用工作区', exact: true }).click()
-    await page.getByRole('button', { name: /^与 (KingBot|Bots King) 对话$/ }).waitFor()
+    await page.getByRole('button', { name: /^与 (King Arthur|Bots King) 对话$/ }).waitFor()
     const back = page.getByRole('button', { name: '返回 Roundtable', exact: true })
     if (await back.isVisible()) await back.click()
     for (const [name, duty] of [['架构师', '提出技术方案'], ['审阅员', '审阅方案并提出验收建议']]) {
@@ -678,7 +724,7 @@ try {
     await editor.and(page.locator('[contenteditable="true"]')).fill('@架构师 给出架构说明')
     await editor.press('Enter')
     const log = page.getByRole('log', { name: '群聊时间线' })
-    const summary = log.getByText(legacy ? /^@?KingBot \| 汇总完成$/u : /^@?KingBot \| 讨论汇总完成$/u, { exact: true })
+    const summary = log.getByText(legacy ? /^@?King Arthur \| 汇总完成$/u : /^@?King Arthur \| 讨论汇总完成$/u, { exact: true })
     await log.getByText(!oldRouting ? /^@?架构师 \| 直接回复$/u : legacy ? /^@?架构师 \| 看到了架构说明$/u : /^@?架构师 \| 初步观点$/u, { exact: true }).waitFor()
     if (oldRouting) await summary.waitFor()
     if (await log.locator('article[data-author=bot]').count() !== (oldRouting ? 3 : 1)) throw new Error('The initial turn must match the installed version')
@@ -702,8 +748,8 @@ try {
     .replace('process.env.DSH_BOTS_SMOKE_OLD_MENTIONS', String(oldMentions)))
 
   const beforeRestart = (await requests()).filter(item => !item.intentCheck)
-  const normalRoles = oldRoutesThroughKing ? ['KingBot', '架构师', 'KingBot', 'KingBot', '审阅员', 'KingBot'] : ['架构师', '审阅员']
-  const discussionRoles = upgradeFrom ? [] : ['KingBot', '审阅员', 'KingBot', '架构师', 'KingBot', '审阅员', 'KingBot', 'KingBot']
+  const normalRoles = oldRoutesThroughKing ? ['King Arthur', '架构师', 'King Arthur', 'King Arthur', '审阅员', 'King Arthur'] : ['架构师', '审阅员']
+  const discussionRoles = upgradeFrom ? [] : ['King Arthur', '审阅员', 'King Arthur', '架构师', 'King Arthur', '审阅员', 'King Arthur', 'King Arthur']
   assert.deepEqual(beforeRestart.map(item => item.role), [...normalRoles, ...discussionRoles])
   assert.ok(beforeRestart.filter(item => item.moderator).every(item => item.tools.every(name => name === 'read_group_history')))
   assert.match(beforeRestart[oldRoutesThroughKing ? 4 : 1].input, legacyRouting ? /架构师 \| 看到了架构说明/u : oldRoutesThroughKing ? /架构师 \| 初步观点/u : /架构师 \| 直接回复/u)
@@ -723,7 +769,7 @@ try {
   const previous = upgradeFrom ? await savedIdentities() : undefined
   if (previous) {
     if (oldRoutesThroughKing) assert.equal(beforeRestart[0].speaker, previous.king.title)
-    assert.match(previous.king.title, /^(Bots King|KingBot)$/)
+    assert.match(previous.king.title, /^(Bots King|King Arthur)$/)
     run('dsh', ['plugin', '--profile', 'web', 'add', join(dir, archive)])
     if (oldPackage.name !== packageName) {
       run('dsh', ['plugin', '--profile', 'web', 'remove', oldPackage.name])
@@ -741,9 +787,9 @@ try {
     await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).waitFor()
     if (upgrading) {
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
-      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
-      await page.getByRole('region', { name: 'KingBot 专属对话', exact: true }).waitFor()
+      await page.getByRole('button', { name: 'King Arthur', exact: true }).click()
+      await page.getByRole('button', { name: '与 King Arthur 对话', exact: true }).click()
+      await page.getByRole('region', { name: 'King Arthur 专属对话', exact: true }).waitFor()
     }
     const workspace = page.getByRole('treeitem', { name: /^(默认工作区|Default workspace)(?:\s|$)/i })
     await workspace.waitFor()
@@ -752,11 +798,11 @@ try {
     await conversation.click()
     const log = page.getByRole('log', { name: '群聊时间线' })
     if (upgrading) {
-      if (oldRouting) await log.getByText(legacy ? /^@?KingBot \| 汇总完成$/u : /^@?KingBot \| 讨论汇总完成$/u, { exact: true }).nth(1).waitFor()
+      if (oldRouting) await log.getByText(legacy ? /^@?King Arthur \| 汇总完成$/u : /^@?King Arthur \| 讨论汇总完成$/u, { exact: true }).nth(1).waitFor()
       else await log.getByText(/^@?审阅员 \| 直接回复$/u).waitFor()
       if (await log.locator('article[data-author=bot]').count() !== (oldRouting ? 6 : 2)) throw new Error('Upgrade should restore the old replies')
     } else {
-      await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
+      await log.getByText(/^@?King Arthur \| 讨论汇总完成$/u).waitFor()
       if (await log.locator('article[data-author=bot]').count() !== 9) throw new Error('Restart should restore discussion')
     }
 
@@ -780,14 +826,14 @@ try {
   assert.equal(afterRestart.at(-2).speaker, '审阅员')
   assert.equal(afterRestart.at(-1).input, '普通会话测试')
   if (previous) {
-    assert.deepEqual(await savedIdentities(), { ...previous, king: { ...previous.king, title: 'KingBot' } })
-    console.log(`Verified upgrade, KingBot rename, and preserved session identities on DSH ${runtime}.`)
+    assert.deepEqual(await savedIdentities(), { ...previous, king: { ...previous.king, title: 'King Arthur' } })
+    console.log(`Verified upgrade, King Arthur rename, and preserved session identities on DSH ${runtime}.`)
   } else {
     browser('run-code', (async page => {
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
-      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
-      await page.getByRole('region', { name: 'KingBot 专属对话', exact: true }).waitFor()
+      await page.getByRole('button', { name: 'King Arthur', exact: true }).click()
+      await page.getByRole('button', { name: '与 King Arthur 对话', exact: true }).click()
+      await page.getByRole('region', { name: 'King Arthur 专属对话', exact: true }).waitFor()
       const log = page.getByRole('log', { name: '群聊时间线' })
       const replies = log.locator('article[data-author=bot] p')
       const send = async text => {
@@ -820,19 +866,19 @@ try {
       await send(`工作区：${workspace}`)
       await replies.last().filter({ hasText: /工作区改为.*按修改后的方案建群吗/ }).waitFor()
       await send('好，就这么建。')
-      await replies.last().filter({ hasText: /群聊结论：.*KingBot \| 讨论汇总完成/s }).waitFor()
+      await replies.last().filter({ hasText: /群聊结论：.*King Arthur \| 讨论汇总完成/s }).waitFor()
       const opened = log.getByRole('status').getByRole('button', { name: '打开群聊', exact: true })
       if (await opened.count() !== 1) throw new Error('Confirmation must create exactly one group')
       await send('确认建群')
       await replies.last().filter({ hasText: /当前没有待确认的建群方案/ }).waitFor()
       await opened.click()
-      await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
+      await log.getByText(/^@?King Arthur \| 讨论汇总完成$/u).waitFor()
       await log.getByText(/^@?架构师 \| 回应 @?离线方案审阅员$/u).waitFor()
       await log.getByText('完成离线清单方案，比较同步与纯本地方案', { exact: true }).waitFor()
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
       await page.getByRole('heading', { name: '离线方案审阅员', exact: true }).waitFor()
-      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
-      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
+      await page.getByRole('button', { name: 'King Arthur', exact: true }).click()
+      await page.getByRole('button', { name: '与 King Arthur 对话', exact: true }).click()
       await send('请新建空白验收群聊，成员为 @架构师')
       await confirm.waitFor()
       await send('换成明天的天气怎么样？')
@@ -850,8 +896,8 @@ try {
     browser('goto', await startHost())
     browser('run-code', (async page => {
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
-      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
+      await page.getByRole('button', { name: 'King Arthur', exact: true }).click()
+      await page.getByRole('button', { name: '与 King Arthur 对话', exact: true }).click()
       const blank = page.getByRole('status').filter({ hasText: /已在.*空白验收群/ })
       await blank.getByRole('button', { name: '打开群聊', exact: true }).click()
       const room = page.getByRole('region', { name: '群聊', exact: true })
@@ -861,7 +907,7 @@ try {
       const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
       await editor.and(page.locator('[contenteditable="true"]')).fill('检查空白群重启后能否发言')
       await editor.press('Enter')
-      await log.getByText(/^@?KingBot \| 讨论汇总完成$/u).waitFor()
+      await log.getByText(/^@?King Arthur \| 讨论汇总完成$/u).waitFor()
     }).toString())
     browser('run-code', (async page => {
       const workspace = page.getByRole('treeitem', { name: /^(默认工作区|Default workspace)(?:\s|$)/i })
@@ -870,7 +916,7 @@ try {
       await page.getByRole('treeitem', { name: /群聊 · @架构师 给出架构说明/ }).click()
       const log = page.getByRole('log', { name: '群聊时间线' })
       const editor = page.getByRole('textbox', { name: /调用指令|commands/i })
-      const summary = log.getByText(/^@?KingBot \| 讨论汇总完成$/u)
+      const summary = log.getByText(/^@?King Arthur \| 讨论汇总完成$/u)
       await summary.waitFor()
       const send = async (text, key = 'Enter') => {
         await editor.and(page.locator('[contenteditable="true"]')).fill(text)
@@ -890,7 +936,7 @@ try {
       await send('@架构师 @审阅员 验收实时插话原议题')
       await activeArchitect.waitFor()
       await send('@架构师 @审阅员 验收插话后只核对核心证据', 'Control+Enter')
-      await log.getByText('已收到插话，KingBot 将按新消息继续。', { exact: true }).waitFor({ timeout: 6500 })
+      await log.getByText('已收到插话，King Arthur 将按新消息继续。', { exact: true }).waitFor({ timeout: 6500 })
       await summary.nth(2).waitFor()
       await send('@架构师 @审阅员 验收暂停原议题')
       await activeArchitect.waitFor()
@@ -919,7 +965,7 @@ try {
       if (await summary.count() !== 3) throw new Error('A pause or a single addressed Bot must not trigger a summary')
       if (await log.getByText(/执行失败.*(?:JSON 格式|还有需要听取的成员)/).count()) throw new Error('Moderator recovery should not abort the discussion')
       await send('@架构师 @审阅员 验收首次主持故障：检查文档索引')
-      await log.getByText(/KingBot \| 讨论汇总完成.*尚未收到 @?审阅员/s).waitFor()
+      await log.getByText(/King Arthur \| 讨论汇总完成.*尚未收到 @?审阅员/s).waitFor()
       await log.getByText('等待该成员回复超时。', { exact: true }).first().waitFor()
       await page.locator('input[type=file]').setInputFiles(process.env.DSH_BOTS_SMOKE_DOCUMENT)
       await editor.and(page.locator('[contenteditable="true"]')).fill('@审阅员 验收读取拖入文档')
@@ -976,9 +1022,9 @@ try {
       await fact.waitFor()
 
       await page.getByRole('button', { name: /^(?:Roundtable|Bots(?: 定义)?)$/ }).click()
-      await page.getByRole('button', { name: 'KingBot', exact: true }).click()
-      await page.getByRole('button', { name: '与 KingBot 对话', exact: true }).click()
-      await page.getByRole('region', { name: 'KingBot 专属对话', exact: true }).waitFor()
+      await page.getByRole('button', { name: 'King Arthur', exact: true }).click()
+      await page.getByRole('button', { name: '与 King Arthur 对话', exact: true }).click()
+      await page.getByRole('region', { name: 'King Arthur 专属对话', exact: true }).waitFor()
       await send('请新建记忆隔离验收群聊，成员为 @架构师')
       await log.getByText(/建立「记忆隔离验收群」/).waitFor()
       await send('确认建群')
@@ -1019,7 +1065,7 @@ try {
         catch { return latestMessage(item).includes(subject) }
       })
       assert.equal(calls.filter(item => item.discussion && item.role === '架构师').length, 1)
-      assert.equal(calls.filter(item => !item.moderator && !item.intentCheck && item.role === 'KingBot').length, 0)
+      assert.equal(calls.filter(item => !item.moderator && !item.intentCheck && item.role === 'King Arthur').length, 0)
     }
     assert.equal(callsFor('停止现在的讨论').length, 0)
     assert.deepEqual(callsFor('把时间留给我').map(item => item.intentCheck), [true])
@@ -1049,7 +1095,7 @@ try {
       standardCalls.find(item => item.calledTool === 'skill').tools.filter(name => relevant.includes(name)).sort(),
       skillCalls.find(item => item.calledTool === 'skill').tools.filter(name => relevant.includes(name)).sort(),
     )
-    const recovery = completed.filter(item => item.role === 'KingBot' && item.input.includes('上次回复校验失败：第 1 个子 Bot'))
+    const recovery = completed.filter(item => item.role === 'King Arthur' && item.input.includes('上次回复校验失败：第 1 个子 Bot'))
     assert.equal(recovery.length, 1)
     const delegated = completed.filter(item => item.moderator && item.input.includes('完成离线清单方案'))
     assert.ok(delegated.length >= 3)

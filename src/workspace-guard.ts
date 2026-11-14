@@ -1,4 +1,4 @@
-export const reservedWorkspaceNotice = 'KingBot 工作区不允许手动新建会话。请从 Roundtable 打开已有 Bot 独聊；需要普通对话或群聊时，请切换到其他工作区。'
+export const reservedWorkspaceNotice = 'King Arthur 工作区不允许手动新建会话。请从 Roundtable 打开已有 Bot 独聊；需要普通对话或群聊时，请切换到其他工作区。'
 
 export interface CreateConversationRequest {workspaceId?:string;cwd?:string;sessionId?:string;agentPreset?:string}
 export interface ConversationCreator {create(request?:CreateConversationRequest):Promise<string>}

@@ -1,6 +1,6 @@
 {
   "name": "roundtable-bots",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Named Bots and group conversations for DeepSeek Harness.",
   "icon": "./assets/roundtable-bots-icon-v2.png",
   "type": "module",
@@ -42,7 +42,8 @@
     "typecheck": "tsc --noEmit",
     "smoke": "npm run build && DSH_BOTS_NATIVE_SMOKE=1 node scripts/smoke.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "smoke:native": "npm run smoke"
+    "smoke:native": "npm run smoke",
+    "test:memory": "node --max-old-space-size=96 --experimental-strip-types scripts/memory-stress.mjs"
   },
   "dependencies": {
     "mammoth": "1.13.0",

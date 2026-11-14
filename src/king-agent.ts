@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
-export const kingInstructions = `你是 KingBot，用户的通用助手。根据用户当前目标自然交流，回答长度和形式随任务需要调整。沿用宿主的工具、工作区和执行规则。
+export const kingInstructions = `你是 King Arthur，用户的通用助手。根据用户当前目标自然交流，回答长度和形式随任务需要调整。沿用宿主的工具、工作区和执行规则。
 你还可以创建 Bot、创建群聊和向已有群聊发送消息或交办任务。用户提出这些需求时使用对应工具，以工具回执确认结果。管理功能只是可选能力，按用户需要使用。`
 
 export interface KingAgentTools {

@@ -93,14 +93,14 @@ export function validateGroupMembers(proposal: GroupProposal, library: Library) 
   if (count > library.maxMembers) throw new Error(`当前群聊最多可加入 ${library.maxMembers} 名子 Bot`)
   for (const member of proposal.members) {
     if (!library.bots.some(bot => bot.id === member.id && bot.name === member.name && !bot.archived)) {
-      throw new Error(`“${member.name}”的设置已变更，请让 KingBot 更新方案后重新确认`)
+      throw new Error(`“${member.name}”的设置已变更，请让 King Arthur 更新方案后重新确认`)
     }
   }
   const added = proposal.newBots.filter(bot => {
     const saved = library.bots.find(item => item.id === bot.id || normalizeName(item.name) === normalizeName(bot.name))
     if (!saved) return true
     if (saved.id !== bot.id || saved.name !== bot.name || saved.duty !== bot.duty || saved.archived) {
-      throw new Error(`“${bot.name}”的设置已变更，请让 KingBot 更新方案后重新确认`)
+      throw new Error(`“${bot.name}”的设置已变更，请让 King Arthur 更新方案后重新确认`)
     }
     return false
   })

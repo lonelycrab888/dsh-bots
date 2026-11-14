@@ -75,10 +75,14 @@ test('projection accepts custom member IDs and old state without a coordinator',
 test('renaming the coordinator retains the existing session and history boundary', () => {
   const existing = { id: 'coordinator', name: 'Bots King', duty: '旧职责', sessionId: 'saved', contextRevision: 3, contextWorkspace: '/bots', historyStart: 4 }
   const renamed = freshCoordinator(existing, 3, 15, () => assert.fail('A rename must not allocate a session'), '/bots')
-  assert.equal(renamed.name, 'KingBot')
+  assert.equal(renamed.name, 'King Arthur')
   assert.equal(renamed.sessionId, existing.sessionId)
   assert.equal(renamed.historyStart, existing.historyStart)
+  assert.deepEqual(resolveTargets('@King Arthur 请汇总', members), [])
+  assert.deepEqual(resolveTargets('@king arthur，@审阅员 请检查', members), [members[1]])
   assert.deepEqual(resolveTargets('@KingBot 请汇总', members), [])
+  assert.deepEqual(resolveTargets('（@King Arthur） @King Arthur.', members), [])
+  assert.throws(()=>resolveTargets('@King ArthurX 请检查',members))
   const legacyChild = { ...members[0], name: 'KingBot' }
   assert.deepEqual(resolveTargets('@KingBot 请检查', [legacyChild]), [legacyChild])
   assert.equal(validateLibrary({ ...fixtureLibrary, bots: [{ ...fixtureLibrary.bots[0], name: 'KingBot' }] }).bots[0].name, 'KingBot')
@@ -129,7 +133,7 @@ test('dispatch uses only current user-created member IDs and rejects remembered 
 })
 
 
-test('KingBot preserves a structured existing-group operation and rejects mixed creation', () => {
+test('King Arthur preserves a structured existing-group operation and rejects mixed creation', () => {
   const action = { kind: 'send', target: '已有群', body: '验证通知' }
   assert.deepEqual(parsePlan(JSON.stringify({ existingGroupAction: action }), []).existingGroupAction, action)
   assert.throws(() => parsePlan(JSON.stringify({ existingGroupAction: action, groupAction: { title: '替代群' } }), []))

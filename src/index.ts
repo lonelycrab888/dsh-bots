@@ -8,6 +8,9 @@ import { bindTypertRemote } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
 import { KING_REMOTE, catalogInput, kingRequest } from './king-remote.ts'
 import { readGroupDocument } from './group-files.ts'
+import { groupPage, taskSummary } from './group-pages.ts'
+import { readGroupLog } from './group-log.ts'
+import { reasoningPreview, reasoningPreviewLimit, rowUpdate } from './memory-limits.ts'
 import { SharedGroupMemory } from './shared-memory.ts'
 import { WorkspaceMemory } from './workspace-memory.ts'
 import { realpathSync, existsSync, statSync } from 'node:fs'
@@ -31,7 +34,7 @@ import { appendDelegatedPolicyOverrides, applyChildComposition, captureDelegated
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { memoryContext, validateMemory, type KingMemory } from './memory.ts'
-import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName, discussionTopic, resolveTargets, selectMembers, validateLibrary, createRequestedBots, type Group, type Member, type Row } from './bots.ts'
+import { coordinatorId, coordinatorName, coordinatorDuty, legacyCoordinatorName, previousCoordinatorName, discussionTopic, resolveTargets, selectMembers, validateLibrary, createRequestedBots, type Group, type Member, type Row } from './bots.ts'
 import { projection } from './projection.ts'
 import type { Config, KingWorkspace } from './config.ts'
 import { confirmationId, describeGroupChange, describeGroupProposal, groupReply, isGroupRevision, proposeGroup, validateGroupMembers } from './group-creation.ts'
@@ -84,6 +87,7 @@ export async function apply(ctx: Context, config: Config) {
   const paused = new Error('用户暂停讨论')
   const stores = new Map<string, WorkspaceMemory>()
   const sharedStores = new Map<string, SharedGroupMemory>()
+  const sharedLive = new WeakMap<object, Group>()
   const openingBots = new Map<string, Promise<string>>()
   const nativeBots = new WeakSet<Agent>()
   const botInputs = new WeakMap<Agent, {text:string;owner:boolean}>()
@@ -97,7 +101,7 @@ export async function apply(ctx: Context, config: Config) {
       reorderPending = undefined
       const selected = config.kingWorkspace.get()
       if (!selected || lifetime.signal.aborted) return
-      void visibility.keepFirst(selected.path, selected.sessionId).catch(error => ctx.logger.warn(`dsh-bots: KingBot order: ${String(error)}`))
+      void visibility.keepFirst(selected.path, selected.sessionId).catch(error => ctx.logger.warn(`dsh-bots: King Arthur order: ${String(error)}`))
     })
   })
   ctx.effect(() => () => { if (reorderPending) clearImmediate(reorderPending) })
@@ -160,7 +164,7 @@ export async function apply(ctx: Context, config: Config) {
   })
   const workspace = () => {
     const raw = config.kingWorkspace.get()
-    if (!raw?.path || !raw.sessionId) throw new Error('请先在 Bots 页面选择 KingBot 的专属工作区。')
+    if (!raw?.path || !raw.sessionId) throw new Error('请先在 Bots 页面选择 King Arthur 的专属工作区。')
     return raw
   }
   const storeFor = () => {
@@ -189,6 +193,16 @@ export async function apply(ctx: Context, config: Config) {
 
   const kingService = {
     ctx,
+    async taskSummary(agent:Agent,taskId:string) {
+      const group=groups.stateOf(agent.session).group
+      if(!group||group.mode==='king'||group.mode==='bot')throw new Error('请在群聊中查看议题。')
+      return JSON.stringify(taskSummary(group,taskId))
+    },
+    async historyPage(agent:Agent,request:{before?:string;around?:string}) {
+      const group=groups.stateOf(agent.session).group
+      if(!group||group.mode==='king'||group.mode==='bot')throw new Error('请在群聊中查看历史。')
+      return JSON.stringify(groupPage(group.rows,request))
+    },
     async downloadDocument(agent: Agent, rowId: string, index: number) {
       const attachments = ctx.get('attachments')
       if (!attachments) throw new Error('宿主附件服务不可用。')
@@ -274,9 +288,9 @@ export async function apply(ctx: Context, config: Config) {
           }))
           return { kind: 'success', text: '' }
         }
-        if (groups.stateOf(agent.session).group?.mode !== 'king' || (agent.session.header.cwd ? realpathSync(agent.session.header.cwd) : '') !== workspace().path) throw new Error('请打开当前工作区的 KingBot 专属对话。')
+        if (groups.stateOf(agent.session).group?.mode !== 'king' || (agent.session.header.cwd ? realpathSync(agent.session.header.cwd) : '') !== workspace().path) throw new Error('请打开当前工作区的 King Arthur 专属对话。')
         if (request.action === 'clear-page') {
-          if (!authorizedKing(agent)) throw new Error('请打开当前 KingBot 独聊后再清空页面。')
+          if (!authorizedKing(agent)) throw new Error('请打开当前 King Arthur 独聊后再清空页面。')
           return kingService.reset({ options: { members:false, memory:false, sessions:false, conversation:true }, revision:request.revision, confirmation:'RESET' })
         }
         if (request.action === 'recover-results') {
@@ -314,10 +328,7 @@ export async function apply(ctx: Context, config: Config) {
 
   function addRows(agent: Agent, rows: Row[]) {
     const prior = new Map(groups.stateOf(agent.session).group?.rows.map(row => [row.id, row]))
-    const updated = rows.map(row => {
-      const old = prior.get(row.id)
-      return { ...row, ...(row.author === 'bot' && old?.author === 'bot' && old.reasoning && row.reasoning === undefined ? {reasoning:old.reasoning} : {}), at: old?.at ?? row.at ?? Date.now() }
-    })
+    const updated = rows.map(row => rowUpdate(row, prior.get(row.id)))
     appendPluginRecord(agent.session, 'plugin:dsh-bots/rows', updated)
     syncSharedGroup(agent, updated)
   }
@@ -439,32 +450,56 @@ export async function apply(ctx: Context, config: Config) {
     const group = groups.stateOf(agent.session).group
     if (!group || group.mode === 'king' || group.mode === 'bot' || agent.session.header.origin === 'subagent' || !agent.session.header.cwd) return
     sharedStore(agent.session.header.cwd).sync(String(agent.id), ctx.get('sessionTitle')?.get(agent.session)?.title ?? group.brief ?? '群聊', group, rows)
+    sharedLive.set(agent.session,group)
   }
 
+  let refreshingShared: Promise<void> | undefined
   async function refreshSharedMemory(signal: AbortSignal) {
-    // Also migrates existing v0.4.0 sessions, without invoking a model or replaying tasks.
-    for (const workspace of groupWorkspaces()) for (const id of workspace.sessionIds) {
-      signal.throwIfAborted()
-      const record = await readGroupSession(SessionId(id), signal)
-      if (!record?.group || record.origin === 'subagent' || record.cwd !== workspace.path || !accessibleGroup(record.group)) continue
-      sharedStore(workspace.path).sync(id, record.title ?? record.group.brief ?? '群聊', record.group)
-    }
+    signal.throwIfAborted()
+    if (refreshingShared) { await refreshingShared; signal.throwIfAborted(); return }
+    const work = (async () => {
+      for (const workspace of groupWorkspaces()) for (const id of workspace.sessionIds) {
+        lifetime.signal.throwIfAborted()
+        const live = ctx.sessions.get(SessionId(id))
+        if (live) {
+          const group = groups.stateOf(live).group
+          if (group && accessibleGroup(group) && live.header.origin !== 'subagent' && live.header.cwd === workspace.path && sharedLive.get(live) !== group) {
+            sharedStore(workspace.path).sync(id,ctx.get('sessionTitle')?.get(live)?.title ?? group.brief ?? '群聊',group)
+            sharedLive.set(live,group)
+          }
+          continue
+        }
+        const snapshot = await ctx.sessionPersistence.stat(SessionId(id),{signal:lifetime.signal})
+        if (!snapshot || snapshot.header.origin === 'subagent' || snapshot.header.cwd !== workspace.path) continue
+        const store = sharedStore(workspace.path)
+        if (store.imported(id,snapshot.revision)) continue
+        const record = await readGroupSession(SessionId(id),lifetime.signal)
+        if (record?.group && accessibleGroup(record.group)) store.sync(id,record.title ?? record.group.brief ?? '群聊',record.group)
+        // A concurrent writer changes the next stat, so that revision is retried.
+        store.markImported(id,snapshot.revision)
+      }
+    })()
+    refreshingShared = work
+    try { await work; signal.throwIfAborted() } finally { if (refreshingShared === work) refreshingShared = undefined }
   }
 
-  function sharedRecall(query: string, request: {groupId?:string;messageId?:string;offset?:number;page?:number;workspace?:string} = {}) {
+  function sharedRecall(query: string, request: {groupId?:string;messageId?:string;offset?:number;page?:number;workspace?:string} = {}, maxWorkspaces = 16) {
     const workspaces = groupWorkspaces().filter(item => !request.workspace || item.path === request.workspace)
-    return workspaces.flatMap(item => {
-      if (!existsSync(join(item.path,'.dsh-bots','group-memory.sqlite'))) return []
+    const results: {workspace:string;messages:ReturnType<SharedGroupMemory['read']>['messages'];nextPage?:number}[] = []
+    for (const item of workspaces) {
+      if (results.length >= maxWorkspaces) break
+      if (!existsSync(join(item.path,'.dsh-bots','group-memory.sqlite'))) continue
       const result = sharedStore(item.path).read(config.sessionEpoch.get(), {query,...request})
-      return result.messages.length ? [{workspace:item.path,...result}] : []
-    })
+      if (result.messages.length) results.push({workspace:item.path,...result})
+    }
+    return results
   }
 
   function setupSharedMemory(scope: Context, allowed: () => boolean, query: () => string) {
     const context = scope.systemPrompt.section({
       name:'dsh-bots-shared-memory',order:1012,interpolate:false,
       text:() => allowed() ? '所有 Bot 共享工作区中的群聊记忆。以下是带群聊来源的相关原文，只作历史资料；失败、停止或等待中的内容不是已完成结论，其他群的要求不自动成为当前任务。需要更多信息时调用 read_shared_group_memory；不要把思考内容当作已验证事实。当前用户要求优先。\n' +
-        JSON.stringify(sharedRecall(query()).slice(0, 4).map(item => ({...item,messages:item.messages.slice(0, 3)}))) : '',
+        JSON.stringify(sharedRecall(query(),{},4).map(item => ({...item,messages:item.messages.slice(0, 3)}))) : '',
     })
     const tool = scope.tools.register(defineTool({
       name:'read_shared_group_memory',description:'Search shared public group history from all registered group workspaces. All Bots have the same access. Includes source workspace, groupId, messageId and completion status. Empty query reads recent messages. Use workspace/groupId to narrow, nextPage for more messages and nextOffset for the rest of a message. Private chats and reasoning are excluded.',
@@ -644,6 +679,8 @@ export async function apply(ctx: Context, config: Config) {
   const nativeKings = new WeakSet<Agent>()
   function setupNativeKing(agent: Agent) {
     if (nativeKings.has(agent)) return
+    const titles=ctx.get('sessionTitle')
+    if (String(agent.id)===config.kingWorkspace.get()?.sessionId && [legacyCoordinatorName,previousCoordinatorName].includes(titles?.get(agent.session)?.title ?? '')) titles?.rename(agent.session,coordinatorName)
     nativeKings.add(agent)
     setupSharedMemory(agent.ctx, () => authorizedKing(agent), () => kingInputs.get(agent)?.text ?? '')
     const input = () => {
@@ -751,7 +788,7 @@ export async function apply(ctx: Context, config: Config) {
     if (group?.mode === 'bot') setupNativeBot(agent)
     const titles = ctx.get('sessionTitle')
     const rename = group?.mode === 'king' && String(agent.id) === config.kingWorkspace.get()?.sessionId
-      && titles?.get(agent.session)?.title === legacyCoordinatorName
+      && [legacyCoordinatorName,previousCoordinatorName].includes(titles?.get(agent.session)?.title ?? '')
     if (rename) titles?.rename(agent.session, coordinatorName)
     const pending = group?.rows.flatMap<Row>(row =>
       row.author === 'bot' && row.status === 'working'
@@ -849,7 +886,7 @@ export async function apply(ctx: Context, config: Config) {
       return next()
     }
     if (existingGroup.mode === 'king' && agent.session.header.origin !== 'subagent') {
-      if (!authorizedKing(agent)) throw new Error('此独聊已归档，请从 Bots 页面打开当前 KingBot 对话。')
+      if (!authorizedKing(agent)) throw new Error('此独聊已归档，请从 Bots 页面打开当前 King Arthur 对话。')
       setupNativeKing(agent)
       await refreshSharedMemory(signal)
       for (const message of messages) {
@@ -1029,10 +1066,17 @@ export async function apply(ctx: Context, config: Config) {
       cwd: live.header.cwd, origin: live.header.origin, group: groups.stateOf(live).group,
       title: ctx.get('sessionTitle')?.get(live)?.title,
     }
-    if (!await ctx.sessionPersistence.stat(id, { signal })) return
+    const snapshot = await ctx.sessionPersistence.stat(id, { signal })
+    if (!snapshot || snapshot.header.origin === 'subagent') return
+    if (snapshot.location?.kind === 'jsonl' && /session\.v4\.jsonl(?:\.zstd)?$/.test(snapshot.location.path)) {
+      return readGroupLog(snapshot.location.path,snapshot.header,signal)
+    }
+    // Unknown/legacy backends keep their decoder; never bulk-read a large or
+    // unbounded artifact through the host's full-buffer implementation.
+    if (snapshot.location?.path.endsWith('.zstd') || snapshot.sizeBytes === undefined || snapshot.sizeBytes > 8 * 1024 * 1024) throw new Error('该历史日志需要先由宿主迁移，已跳过整包加载。')
     const stored = await ctx.sessionPersistence.open(id, 'read', { signal })
     try {
-      const { events } = await stored.read()
+      const { events } = await stored.read(undefined,undefined,{signal})
       const state = events.reduce(projection.apply, projection.init(stored.header, stored.inheritedEventCount))
       return { cwd: stored.header.cwd, origin: stored.header.origin, group: state.group,
         title: events.findLast(event => event.type === 'session/title')?.data.title }
@@ -1159,7 +1203,7 @@ export async function apply(ctx: Context, config: Config) {
       }
       await ctx.sessions.flush(target.session)
       if (!authorizedKing(parent)) return
-      const text = delivery.kind === 'send' ? `已以 KingBot 身份发送到「${title}」。`
+      const text = delivery.kind === 'send' ? `已以 King Arthur 身份发送到「${title}」。`
         : delivery.kind === 'update' ? `已将新要求交给「${title}」的原议题。${waiting ? '正在停止旧一轮执行，随后按新要求继续；结果不明的操作先核对。' : ''}更新后的结果会回到这里。`
         : waiting ? `已排队交办给「${title}」。先停止当前执行，再开始新议题，结论会回到这里。`
         : `已交办给「${title}」。讨论结论会回到这里。`
@@ -1185,7 +1229,7 @@ export async function apply(ctx: Context, config: Config) {
     }])
     if (!choice && !explicit) return false
     if (!actor.owner || !authorizedKing(parent)) {
-      if (explicit) reply('只有宿主所有者可从当前 KingBot 专属对话访问已有群聊。')
+      if (explicit) reply('只有宿主所有者可从当前 King Arthur 专属对话访问已有群聊。')
       return Boolean(explicit)
     }
     if (choice && /^(?:取消|算了|不用了)[。！!]?$/u.test(text.trim())) {
@@ -1249,7 +1293,7 @@ export async function apply(ctx: Context, config: Config) {
     const present = group.coordinator?.id === coordinatorId
     if (request.kind === 'locate' || request.kind === 'inspect' || !request.body?.trim()) {
       const status = group.tasks?.find(item => item.id === group.activeTaskId)?.status
-      const heading = `「${ref.workspace}」的「${ref.title}」${present ? '由 KingBot 主持。' : '尚未登记 KingBot 主持状态。'}`
+      const heading = `「${ref.workspace}」的「${ref.title}」${present ? '由 King Arthur 主持。' : '尚未登记 King Arthur 主持状态。'}`
         + (request.kind !== 'inspect' && status === 'running' ? '当前讨论正在进行。' : '')
       reply(heading + (request.kind === 'inspect' ? '\n' + groupProgress(group)
         : request.kind === 'send' ? '\n请回复「就发『正文』」，我会原样发到群里。'
@@ -1257,7 +1301,7 @@ export async function apply(ctx: Context, config: Config) {
       return true
     }
     if (!present || request.body.length > (request.kind !== 'send' ? 6000 : 12000)) {
-      reply(present ? '正文太长，请缩短后重试。' : '这个群的 KingBot 尚不可用，请先打开群聊确认状态。', ref)
+      reply(present ? '正文太长，请缩短后重试。' : '这个群的 King Arthur 尚不可用，请先打开群聊确认状态。', ref)
       return true
     }
     signal.throwIfAborted()
@@ -1276,7 +1320,7 @@ export async function apply(ctx: Context, config: Config) {
     await ctx.sessions.flush(parent.session)
     try { await completeGroupDelivery(parent, delivery) }
     catch (error) {
-      reply('这条请求已保存，交付状态待核对。重新打开 KingBot 对话后会继续核对。', ref)
+      reply('这条请求已保存，交付状态待核对。重新打开 King Arthur 对话后会继续核对。', ref)
       ctx.logger.warn(`dsh-bots: group delivery needs recovery: ${String(error)}`)
     }
     return true
@@ -1285,7 +1329,7 @@ export async function apply(ctx: Context, config: Config) {
   async function replyToGroupProposal(parent: Agent, reply: NonNullable<ReturnType<typeof groupReply>>, planner: Extract<Row, { author: 'bot' }>, signal: AbortSignal, clicked?: string) {
     const proposal = groups.stateOf(parent.session).pendingGroup
     if (clicked && (!proposal || clicked !== confirmationId(proposal))) return '这份方案已处理，请使用当前方案。'
-    if (!proposal) return '当前没有待确认的建群方案。可以先告诉 KingBot 想讨论什么或完成什么任务。'
+    if (!proposal) return '当前没有待确认的建群方案。可以先告诉 King Arthur 想讨论什么或完成什么任务。'
     if (reply.kind === 'cancel') {
       appendPluginRecord(parent.session, 'plugin:dsh-bots/group-proposal', { proposal: null })
       return '已取消建群方案。'
@@ -1626,7 +1670,12 @@ export async function apply(ctx: Context, config: Config) {
       const prefix = priorReasoning?.author === 'bot' && priorReasoning.reasoning ? priorReasoning.reasoning + '\n\n' : ''
       const reasoning = rowId ? (text:string) => {
         const row = current().rows.find(row => row.id === rowId)
-        if (row?.author === 'bot') addRows(parent, [{...row,reasoning:prefix + text}])
+        if (row?.author === 'bot') {
+          const next = reasoningPreview(prefix + text), before = row.reasoning ?? ''
+          if (next === before) return
+          if (next.startsWith(before)) appendPluginRecord(parent.session,'plugin:dsh-bots/reasoning',{id:row.id,offset:before.length,text:next.slice(before.length)})
+          else addRows(parent,[{...row,reasoning:next}])
+        }
       } : undefined
       return askBot(parent, scoped, { ...member, sessionId }, prompt, model, requestSignal, instructions, groupMemory, read ? { ...reading, beforeOperation, hooks, peer: task && member.id !== coordinatorId ? peerChannel(member, requestSignal) : undefined } : undefined, reasoning)
     }
@@ -1795,8 +1844,8 @@ export async function apply(ctx: Context, config: Config) {
         if (task) task = saveTask(parent, { ...task, attempts: [...task.attempts, { rowId, botId: speaker.id, name: speaker.name, question: step.question }] })
         const result = await runMember(speaker,
           { id: rowId, author: 'bot', botId: speaker.id, status: 'working', text: '正在回复…' },
-          JSON.stringify({ 议题: subject, ...continuation, KingBot主持提问: step.question, 已有讨论: transcript.slice(-8).map(item => ({ ...item, text: excerpt(item.text, 450) })), ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
-          '你正在参加 KingBot 主持的讨论。根据用户最近明确的要求回答，不要重复已完成的操作。针对已有发言补充、质疑或给出依据。可以点名其他成员。只发一条推进讨论的回复。')
+          JSON.stringify({ 议题: subject, ...continuation, 主持提问: step.question, 已有讨论: transcript.slice(-8).map(item => ({ ...item, text: excerpt(item.text, 450) })), ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
+          '你正在参加 King Arthur 主持的讨论。根据用户最近明确的要求回答，不要重复已完成的操作。针对已有发言补充、质疑或给出依据。可以点名其他成员。只发一条推进讨论的回复。')
         transcript.push({ botId: speaker.id, name: speaker.name, question: step.question, status: result.status, text: result.text })
         if (result.execution?.outcome === 'host-wait' || result.execution?.outcome === 'model-timeout' ||
             result.execution?.outcome === 'child-deadline') timedOut.add(speaker.id)
@@ -1820,7 +1869,7 @@ export async function apply(ctx: Context, config: Config) {
       const replies = completed.map(item => `**${item.name}**\n\n${item.text}`).join('\n\n')
       await summarize(JSON.stringify({ 议题: subject, ...continuation, 已有讨论: transcript.slice(-8).map(item => ({ ...item, text: excerpt(item.text, 450) })), ...(previousTask ? { 原始目标: task?.goal, 用户最近要求: corrections } : {}) }),
         '请总结你主持的讨论，基于实际发言给出结论、明确决定、关键证据和仍待确认的问题。以用户最新确认或更正为准。将状态为 done 的发言视作已保存原文。只有明确发生生成失败或依据确实缺失时才说明缺口。用简短小标题区分已确认决定、依据和待解决问题。',
-        replies ? `KingBot 未能生成汇总。以下是已收到的发言。\n\n${replies}` : '本轮还没有可汇总的有效发言。', gaps, requestedAction === 'summarize' || Boolean(task?.operations.length))
+        replies ? `King Arthur 未能生成汇总。以下是已收到的发言。\n\n${replies}` : '本轮还没有可汇总的有效发言。', gaps, requestedAction === 'summarize' || Boolean(task?.operations.length))
 
     }
 
@@ -1864,7 +1913,7 @@ export async function apply(ctx: Context, config: Config) {
     } catch (error) {
       const pending = current().rows.filter((row): row is Row & { author: 'bot' } => row.author === 'bot' && row.status === 'working')
       const steered = signal.reason === redirected
-      const stopped = steered ? '已收到插话，KingBot 将按新消息继续。' : '本轮已停止。'
+      const stopped = steered ? '已收到插话，King Arthur 将按新消息继续。' : '本轮已停止。'
       const failure = signal.aborted ? stopped : `执行失败：${(error as Error).message}。请重试。`
       addRows(parent, pending.map(row => ({ ...row, status: signal.aborted ? 'stopped' : 'error', text: failure })))
       if (task?.status === 'running') task = saveTask(parent, { ...task, status: 'paused' })
@@ -2121,8 +2170,8 @@ export async function apply(ctx: Context, config: Config) {
             try {
               for await (const chunk of next()) {
                 if (chunk.type === 'reasoning-delta' && chunk.text) {
-                  reasoning += chunk.text
-                  if (Date.now() - lastReasoningAt >= 150) {publishReasoning();lastReasoningAt=Date.now()}
+                  reasoning = (reasoning + chunk.text).slice(0, reasoningPreviewLimit + 1)
+                  if (Date.now() - lastReasoningAt >= 1000) {publishReasoning();lastReasoningAt=Date.now()}
                 }
                 if (chunk.type === 'text-delta' && chunk.text) runtime?.appendText(chunk.text)
                 if (chunk.type === 'text-delta' && chunk.text || chunk.type === 'reasoning-delta' && chunk.text ||

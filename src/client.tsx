@@ -1,3 +1,4 @@
+import type { TaskSummary } from './group-pages.ts'
 import { guardWorkspaceCreation, reservedWorkspaceNotice, type CreateConversationRequest } from './workspace-guard.ts'
 import { taskActionLabel, taskActions, taskDigest, type DiscussionTask, type TaskAction } from './tasks.ts'
 import { avatarImages, kingAvatar } from './avatar-images.ts'
@@ -9,7 +10,7 @@ import { createContext, useContext, memo, useEffect, useId, useLayoutEffect, use
 import Markdown, { defaultUrlTransform } from 'react-markdown'
 import { localFileLink, type GroupFileTarget, type DownloadGroupFile } from './file-links.ts'
 import remarkGfm from 'remark-gfm'
-import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, type Bot, type BotId, type Group, type Library, type BotModel } from './bots.ts'
+import { coordinatorId, coordinatorName, isCoordinatorName, maxChildBots, validateLibrary, deleteBot, type Bot, type BotId, type Group, type Row, type Library, type BotModel } from './bots.ts'
 import styles from './style.css'
 import type { MemoryPage } from './workspace-memory.ts'
 import { validateMemory, forgetBotIds, type KingMemory } from './memory.ts'
@@ -75,16 +76,16 @@ function KingCard({ snapshot, busy, models, saveModel, catalog, reload }: { snap
   }
   const disabled=busy || working || !snapshot.writable
   return <article className="dsh-bots-king">
-    <div className="dsh-bots-name"><Avatar id={coordinatorId} name={coordinatorName} /><h2>KingBot</h2><span className="dsh-bots-badge">主 Bot · 专属对话与长期记忆</span></div>
+    <div className="dsh-bots-name"><Avatar id={coordinatorId} name={coordinatorName} /><h2>King Arthur</h2><span className="dsh-bots-badge">主 Bot · 专属对话与长期记忆</span></div>
     <p>可以自由聊天、搜索资料和处理工作区任务，也可以创建 Bot、建群和向群聊发送消息。</p>
-    {!snapshot.workspace && <p className="dsh-bots-hint">请选择 KingBot 的专属工作区；选择工作区不会清空已有子 Bot。</p>}
-    <label className="dsh-bots-model">主 Bot 工作区<input aria-label="KingBot 工作区目录" value={path} onChange={event=>setPath(event.target.value)} placeholder="选择或填写已有文件夹的绝对路径" disabled={disabled}/></label>
+    {!snapshot.workspace && <p className="dsh-bots-hint">请选择 King Arthur 的专属工作区；选择工作区不会清空已有子 Bot。</p>}
+    <label className="dsh-bots-model">主 Bot 工作区<input aria-label="King Arthur 工作区目录" value={path} onChange={event=>setPath(event.target.value)} placeholder="选择或填写已有文件夹的绝对路径" disabled={disabled}/></label>
     <div className="dsh-bots-toolbar">
       <button type="button" disabled={disabled} onClick={()=>void run(async()=>{const selected=await catalog.pickDirectory();if(selected)setPath(selected)})}>选择文件夹</button>
       <button type="button" disabled={disabled || !path.trim()} onClick={()=>void run(async()=>{await catalog.setWorkspace(path.trim(),snapshot.revision);await reload()})}>{snapshot.workspace ? '切换工作区' : '启用工作区'}</button>
     </div>
     {snapshot.workspace && <><small>记忆位置：{snapshot.workspace.path}/.dsh-bots/king-memory.sqlite</small>
-      <div className="dsh-bots-toolbar"><button className="dsh-bots-primary" disabled={disabled} onClick={()=>void run(()=>catalog.openKing())}>与 KingBot 对话</button><button disabled={disabled} onClick={()=>setMemoryOpen(!memoryOpen)}>{memoryOpen?'收起记忆管理':'管理工作区记忆'}</button></div>
+      <div className="dsh-bots-toolbar"><button className="dsh-bots-primary" disabled={disabled} onClick={()=>void run(()=>catalog.openKing())}>与 King Arthur 对话</button><button disabled={disabled} onClick={()=>setMemoryOpen(!memoryOpen)}>{memoryOpen?'收起记忆管理':'管理工作区记忆'}</button></div>
       <p className="dsh-bots-hint">可以说：“帮我创建两个子 Bot，一个负责架构，一个负责验收，名称和能力描述由你拟定。”此工作区仅供主 Bot 使用，不能新建普通对话或群聊；其他工作区的群聊会共享这份记忆。</p>
     </>}
     <ModelPicker value={snapshot.library.kingModel} groups={models} disabled={disabled} onChange={saveModel}/>
@@ -100,7 +101,7 @@ function DirectoryManagement({snapshot,catalog,disabled,done,showArchived,setSho
   const pending=snapshot.resetPending,options=pending?.options??selected
   async function submit(){
     setBusy(true);setError('');setStatus('')
-    try{await catalog.reset(options,snapshot.revision);await done();setOpen(false);setConfirmation('');setSelected({members:false,memory:false,sessions:false});setStatus(options.sessions?'所选数据已重置，请重新选择工作区。':options.memory?'长期记忆已清空，旧独聊已归档。点击「与 KingBot 对话」开始新的对话。':'所选数据已重置。')}
+    try{await catalog.reset(options,snapshot.revision);await done();setOpen(false);setConfirmation('');setSelected({members:false,memory:false,sessions:false});setStatus(options.sessions?'所选数据已重置，请重新选择工作区。':options.memory?'长期记忆已清空，旧独聊已归档。点击「与 King Arthur 对话」开始新的对话。':'所选数据已重置。')}
     catch(e){setError(messageOf(e));await done().catch(()=>{})}finally{setBusy(false)}
   }
   return <section className="dsh-bots-directory-management" aria-label="Bots 目录管理">
@@ -111,7 +112,7 @@ function DirectoryManagement({snapshot,catalog,disabled,done,showArchived,setSho
     {pending&&<p role="alert">{pending.options.conversation?'上次清空页面尚未完成，请打开面板继续完成；长期记忆会保留。':'上次重置尚未完成，请打开重置面板继续完成原先选择的项目。'}</p>}
     {open&&<div id={resetId} className="dsh-bots-editor dsh-bots-reset">
       <strong>选择要重置的项目</strong>
-      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 KingBot 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空主 Bot 的长期记忆，并归档其当前独聊、开启空白上下文；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
+      {([['members','Bots 成员','删除所有子 Bot，包含已停用成员；保留 King Arthur 和人数上限。旧编号不能复用。'],['memory','主 Bot 记忆','清空主 Bot 的长期记忆，并归档其当前独聊、开启空白上下文；保留记忆开关。需先选择工作区。'],['sessions','旧会话关联','解除主 Bot 工作区与会话绑定，旧群聊改为只读；之后重新选择工作区并创建专属对话。']] as const).map(([key,title,description])=><label key={key}><span><input type="checkbox" aria-label={`重置${title}`} checked={options[key]} disabled={busy||!!pending||(key==='memory'&&!snapshot.workspace)} onChange={e=>{setSelected({...selected,[key]:e.target.checked});setConfirmation('')}}/>{title}</span><small>{description}</small></label>)}
       <p>只重置勾选项目。此操作不能在插件中撤销；原聊天历史、已导出的文件和其他工作区的记忆文件不会删除。重置后使用新的 Bot 执行上下文。</p>
       <label>输入 RESET 确认<input aria-label="重置确认文字" value={confirmation} disabled={busy} onChange={e=>setConfirmation(e.target.value)} autoComplete="off"/></label>
       <div className="dsh-bots-actions"><button type="button" disabled={busy} onClick={()=>setOpen(false)}>取消重置</button><button type="button" disabled={disabled||busy||confirmation!=='RESET'||!Object.values(options).some(Boolean)} onClick={()=>void submit()}>{busy?'正在重置…':pending?'继续未完成的重置':'确认重置所选数据'}</button></div>
@@ -242,7 +243,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
         <DirectoryManagement snapshot={snapshot} catalog={catalog} disabled={busy || !snapshot.writable} done={load} showArchived={showArchived} setShowArchived={setShowArchived} />
       </>}
       {selection === coordinatorId && <>
-        <KingCard snapshot={snapshot} busy={busy} catalog={catalog} reload={load} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'KingBot 模型已保存，下次执行生效。')} />
+        <KingCard snapshot={snapshot} busy={busy} catalog={catalog} reload={load} models={models} saveModel={model => void save({ ...snapshot.library, kingModel: model }, 'King Arthur 模型已保存，下次执行生效。')} />
         <form className="dsh-bots-settings" onSubmit={event => {
           event.preventDefault()
           void save({ ...snapshot.library, maxMembers: Number(limit) }, '群聊人数上限已保存。')
@@ -258,7 +259,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
         event.preventDefault()
         const existing = snapshot.library.bots.find(bot => bot.id === edit.id)
         if (isCoordinatorName(edit.name) && !isCoordinatorName(existing?.name ?? '')) {
-          setError('KingBot 是主 Bot 的保留名称。')
+          setError('King Arthur 是主 Bot 的保留名称。')
           return
         }
         const definitions = existing ? snapshot.library.bots.map(bot => bot.id === edit.id ? edit : bot) : [...snapshot.library.bots, edit]
@@ -303,6 +304,7 @@ function BotLibrary({ catalog }: { catalog: CatalogAPI }) {
 
 function ModePicker({ useProjection, choose, catalog }: { useProjection: ProjectionHook; choose: Choose; catalog: CatalogAPI }) {
   const group = useProjection('dshBots')
+
   const [editing, setEditing] = useState(false)
   const [selected, setSelected] = useState<BotId[]>([])
   const [library, setLibrary] = useState<Library>()
@@ -331,7 +333,7 @@ function ModePicker({ useProjection, choose, catalog }: { useProjection: Project
       <button type="button" aria-pressed={!!group || editing} disabled={saving} onClick={() => void open()}>群聊</button>
     </div>
     {editing && library && <div className="dsh-bots-picker">
-      <p>KingBot 自动加入 · 已选 {selected.length}/{library.maxMembers} 名子 Bot</p>
+      <p>King Arthur 自动加入 · 已选 {selected.length}/{library.maxMembers} 名子 Bot</p>
       <fieldset disabled={saving}>
         <legend>选择群聊成员</legend>
         {library.bots.filter(bot => !bot.archived).map(bot => <label key={bot.id}>
@@ -434,7 +436,8 @@ function GroupConfirmation({ confirmation, choose }: {
   </div>
 }
 
-function TaskPanel({ group, choose, source, format }: {
+function TaskPanel({ group, choose, source, format, loadSummary }: {
+  loadSummary(taskId:string):Promise<TaskSummary>
   format: FormatMentions
   group: Group
   choose(task: DiscussionTask, action: TaskAction): Promise<void>
@@ -447,8 +450,17 @@ function TaskPanel({ group, choose, source, format }: {
   const task = tasks.find(item => item.id === selected)
     ?? tasks.find(item => item.id === group.activeTaskId)
     ?? tasks.at(-1)
+  const [summary,setSummary]=useState<{id:string;value:TaskSummary}>()
+  useEffect(()=>{
+    let active=true
+    if(task && (group.totalRows ?? 0)>group.rows.length) {
+      void loadSummary(task.id).then(value=>{if(active)setSummary({id:task.id,value})},error=>{if(active)setError(messageOf(error))})
+    } else setSummary(undefined)
+    return ()=>{active=false}
+  },[task?.id,task?.revision,group.totalRows])
   if (!task) return null
-  const digest = taskDigest(task, group.rows)
+  const digest = summary?.id===task.id ? summary.value : taskDigest(task, group.rows)
+  const completedCount = summary?.id===task.id ? summary.value.completedCount : digest.completed.length
   const resumable = task.status === 'ready' || task.status === 'paused'
   const labels = { ready: '待开始', running: '讨论中', paused: '已暂停', complete: '已汇总', ended: '已结束' }
   async function submit(current: DiscussionTask, action: TaskAction) {
@@ -459,7 +471,7 @@ function TaskPanel({ group, choose, source, format }: {
   }
   return <aside className="dsh-bots-task" aria-label="议题与进度">
     {resumable && <div className="dsh-bots-task-status">
-      <p>{task.question ? '等待用户回答' : labels[task.status]} · {task.title} · 已收到 {digest.completed.length} 条发言{task.operations.length ? ` · ${task.operations.length} 项待核对` : ''}</p>
+      <p>{task.question ? '等待用户回答' : labels[task.status]} · {task.title} · 已收到 {completedCount} 条发言{task.operations.length ? ` · ${task.operations.length} 项待核对` : ''}</p>
       <div className="dsh-bots-actions">
         {taskActions.map(action => <button key={action} type="button" disabled={pending}
           onClick={() => void submit(task, action)}>{taskActionLabel[action]}</button>)}
@@ -471,6 +483,7 @@ function TaskPanel({ group, choose, source, format }: {
       {tasks.length > 1 && <label>议题 <select aria-label="选择议题" value={task.id} onChange={event => { setSelected(event.target.value); setError('') }}>
         {[...tasks].reverse().map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
       </select></label>}
+      {summary?.id===task.id && <p>以下为议题预览；完整内容可通过原消息、原汇总和发言来源回查。</p>}
       <dl>
         <dt>原始目标</dt><dd>{task.goal}</dd>
         {digest.constraints.length > 0 && <><dt>约束</dt><dd><ul>{digest.constraints.map(row => <li key={row.id}>{row.text} <button type="button" onClick={() => source(row.id)}>原消息</button></li>)}</ul></dd></>}
@@ -500,9 +513,12 @@ function KingConversationActions({clear}:{clear():Promise<void>}) {
   </div>
 }
 
-function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask, clearPage, accountAvatar, downloadFile }: {
+function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, chooseTask, clearPage, accountAvatar, downloadFile, loadHistory, loadSummary, sessionId }: {
+  loadSummary(taskId:string):Promise<TaskSummary>
+  sessionId: string
   catalog: CatalogAPI
   useProjection: ProjectionHook
+  loadHistory(request:{before?:string;around?:string}):Promise<{rows:Row[];hasMore:boolean}>
   downloadFile: DownloadGroupFile
   openSession: (id: string) => void
   chooseGroup(id: string, confirm: boolean): Promise<void>
@@ -511,6 +527,19 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   accountAvatar: ReturnType<typeof avatarStore>
 }) {
   const group = useProjection('dshBots')
+  const [history,setHistory]=useState<{rows:Row[];hasMore:boolean}>()
+  const [historyError,setHistoryError]=useState('')
+  const [loadingHistory,setLoadingHistory]=useState(false)
+  const historyGeneration=useRef(0)
+  useEffect(()=>{historyGeneration.current++;setHistory(undefined);setHistoryError('');setLoadingHistory(false);return ()=>{historyGeneration.current++}},[sessionId])
+  const displayed=history?.rows ?? group?.rows ?? []
+  async function showHistory(request:{before?:string;around?:string}) {
+    const generation=++historyGeneration.current
+    setLoadingHistory(true);setHistoryError('');follow.current=false
+    try {const page=await loadHistory(request);if(generation===historyGeneration.current)setHistory(page)}
+    catch(error){if(generation===historyGeneration.current)setHistoryError(messageOf(error))}
+    finally{if(generation===historyGeneration.current)setLoadingHistory(false)}
+  }
   const userAvatar = useSyncExternalStore(accountAvatar.subscribe, accountAvatar.getSnapshot)
   const [library, setLibrary] = useState<Library>()
   const mentionMembers = group?.mode === 'king' ? library?.bots : group?.members
@@ -578,20 +607,27 @@ function GroupTimeline({ useProjection, openSession, catalog, chooseGroup, choos
   if (!group) return null
   if (group.mode === 'king' || group.mode === 'bot') return <KingConversationActions clear={clearPage} />
   return <FileDownloadContext.Provider value={downloadFile}><section ref={room} className="dsh-bots dsh-bots-room" aria-label="群聊">
-    {<TaskPanel group={group} format={formatMentions} choose={chooseTask} source={id => {
+    {<TaskPanel key={sessionId} loadSummary={loadSummary} group={group} format={formatMentions} choose={chooseTask} source={id => {
       const row = timeline.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)
+      if(!row){void showHistory({around:id});return}
       row?.scrollIntoView({ block: 'nearest' })
       row?.focus({ preventScroll: true })
     }} />}
-    {group.rows.length === 0
-      ? <p className="dsh-bots-hint">{group.brief ?? '发消息后，KingBot 会根据成员的发言主持讨论。可以用 @ 指定参与成员。'}</p>
+    {(history || (group.totalRows ?? 0)>group.rows.length) && <div className="dsh-bots-actions">
+      <button type="button" disabled={loadingHistory || (history ? !history.hasMore : false)} onClick={()=>void showHistory({before:displayed[0]?.id})}>更早记录</button>
+      {history && <button type="button" onClick={()=>{historyGeneration.current++;setHistory(undefined);setLoadingHistory(false);setHistoryError('');follow.current=true}}>返回最新</button>}
+      <span>{history ? '正在查看历史；新消息保留在最新记录中。' : '仅加载最近 80 条消息，历史记录完整保留。'}</span>
+    </div>}
+    {historyError && <p role="alert" className="dsh-bots-error">{historyError}</p>}
+    {displayed.length === 0
+      ? <p className="dsh-bots-hint">{group.brief ?? '发消息后，King Arthur 会根据成员的发言主持讨论。可以用 @ 指定参与成员。'}</p>
       : <div className="dsh-bots-timeline" ref={timeline} role="log" aria-label="群聊时间线"
           onScroll={event => {
             const log = event.currentTarget
             follow.current = log.scrollHeight - log.clientHeight - log.scrollTop < 48
           }}>
           {group.brief && <p className="dsh-bots-hint">{group.brief}</p>}
-          {group.rows.map(row => {
+          {displayed.map(row => {
             if (row.author === 'notice') return row.sessionId
               ? <p key={row.id} role="status" className="dsh-bots-hint">{row.text} <button type="button" onClick={() => openSession(row.sessionId!)}>打开群聊</button></p>
               : <p key={row.id} role="status" className={row.tone === 'info' ? 'dsh-bots-hint' : 'dsh-bots-error'}>{row.text}</p>
@@ -652,7 +688,7 @@ interface ClientContext {
   remote: {
     $mount(contribution:unknown):Promise<()=>Promise<void>>
     workspaceFiles:{readBytes(sessionId:string,path:string,options:Record<string,never>,signal:AbortSignal):Promise<{ok:true;value:{data:Uint8Array}}|{ok:false;error:{message:string}}>}
-    dshBots:{downloadDocument(sessionId:string,rowId:string,index:number):Promise<{ok:true;value:{name:string;data:string}}|{ok:false;error:{message:string}}>;saveCatalog(request:Record<string,unknown>):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
+    dshBots:{taskSummary(sessionId:string,taskId:string):Promise<{ok:true;value:string}|{ok:false;error:{message:string}}>;historyPage(sessionId:string,request:{before?:string;around?:string}):Promise<{ok:true;value:string}|{ok:false;error:{message:string}}>;downloadDocument(sessionId:string,rowId:string,index:number):Promise<{ok:true;value:{name:string;data:string}}|{ok:false;error:{message:string}}>;saveCatalog(request:Record<string,unknown>):Promise<{ok:true;value:{kind:"success"|"error";text:string}}|{ok:false;error:{message:string}}>;reset(request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>;manage(id:string,request:Record<string,unknown>):Promise<{ok:true;value:{kind:'success'|'error';text:string}}|{ok:false;error:{message:string}}>}
     directoryPicker:{pick():Promise<{ok:true;value:string|null}|{ok:false;error:{message:string}}>}
     $on(event: string, callback: () => void): () => void
     $stream(options: { name: string; open(signal: AbortSignal): unknown; ended(): Error; carrierFailed(): void }): AsyncIterable<AccountFrame> & { dispose(): unknown }
@@ -881,6 +917,17 @@ function mountClient(ctx: ClientContext) {
     inject: (sessionId: string) => ({
       catalog,
       accountAvatar,
+      sessionId,
+      async loadSummary(taskId:string) {
+        const result=await ctx.remote.dshBots.taskSummary(sessionId,taskId)
+        if(!result.ok)throw new Error(result.error.message)
+        return JSON.parse(result.value) as TaskSummary
+      },
+      async loadHistory(request:{before?:string;around?:string}) {
+        const result=await ctx.remote.dshBots.historyPage(sessionId,request)
+        if(!result.ok)throw new Error(result.error.message)
+        return JSON.parse(result.value) as {rows:Row[];hasMore:boolean}
+      },
       async downloadFile(target: GroupFileTarget) {
         const name = 'path' in target ? target.path.split(/[/\\]/).pop() || 'download' : target.name
         await ctx.fileActions.save({url:'',name,read:async signal => {

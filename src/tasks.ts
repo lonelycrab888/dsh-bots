@@ -57,9 +57,20 @@ export function taskControl(text: string): { action: TaskAction; query: string; 
 function grams(text: string): Set<string> {
   const clean = text.normalize('NFKC').toLowerCase()
     .replace(/(?:昨天的?|前天的?|今天的?|之前的?|刚才的?|上一轮|这个|本轮|当前|讨论|任务|方案|继续|请|the |yesterday)/gu, '')
-  const words = clean.match(/[\p{L}\p{N}]+/gu) ?? []
-  return new Set(words.flatMap(word => /\p{Script=Han}/u.test(word) ?
-    Array.from(word).slice(1).map((letter, index) => Array.from(word)[index] + letter) : [word]))
+  const found = new Set<string>()
+  for (const match of clean.matchAll(/[\p{L}\p{N}]+/gu)) {
+    const word = match[0]
+    if (/\p{Script=Han}/u.test(word)) {
+      let previous = ''
+      for (const character of word) {
+        if (previous) found.add(previous + character)
+        previous = character
+        if (found.size >= 4096) break
+      }
+    } else found.add(word.slice(0, 128))
+    if (found.size >= 4096) break
+  }
+  return found
 }
 
 export function findTask(group: Group, text: string, explicit = false): DiscussionTask | 'ambiguous' | undefined {

@@ -1,4 +1,6 @@
-import { groupCheckpointSchema, type GroupCheckpoint } from './group-context.ts'
+import { compactCheckpoint, groupCheckpointSchema, type GroupCheckpoint } from './group-context.ts'
+import { groupWindow } from './group-pages.ts'
+import { reasoningPreview } from './memory-limits.ts'
 import { z } from 'zod'
 import { memberExecutionSchema } from './member-runtime.ts'
 import { botAvatars } from './avatars.ts'
@@ -31,7 +33,7 @@ const row = z.union([
     literal: z.literal(true).optional(), privateToKing: z.literal(true).optional(), groupReference: z.literal(true).optional(),
   }),
 ])
-const group = z.object({ sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king','bot']).optional(), botId: z.string().optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), tasks: z.array(taskSchema).optional(), activeTaskId: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
+const group = z.object({ totalRows:z.number().int().nonnegative().optional(), sessionEpoch:z.number().int().nonnegative().optional(), mode: z.enum(['group','king','bot']).optional(), botId: z.string().optional(), members: z.array(member), coordinator: member.optional(), rows: z.array(row), brief: z.string().optional(), tasks: z.array(taskSchema).optional(), activeTaskId: z.string().optional(), confirmation: z.object({ id: z.string(), ready: z.boolean(), task: z.string().optional() }).optional() })
 const stateSchema = z.object({
   checkpoints: z.array(groupCheckpointSchema).optional(), inherited: z.number(), group: group.nullable(), pendingGroup: groupProposalSchema.nullish(),
   groupTaskUpdates: z.array(groupTaskUpdateSchema).optional(), peerMessages: z.array(peerMessageSchema).optional(), groupChoice: groupChoiceSchema.nullish(), groupDeliveries: z.array(groupDeliverySchema).optional(),
@@ -48,6 +50,7 @@ declare module '@deepseek-ai/dsh-session/types' {
     'plugin:dsh-bots/checkpoint': GroupCheckpoint
     'plugin:dsh-bots/members': Group['members']
     'plugin:dsh-bots/rows': Group['rows']
+    'plugin:dsh-bots/reasoning': {id:string;offset:number;text:string}
     'plugin:dsh-bots/coordinator': Member
     'plugin:dsh-bots/bot': { botId: string }
     'plugin:dsh-bots/king': { mode: 'king' }
@@ -66,14 +69,14 @@ type Definition = ProjectionDefinition<'dshBots', z.infer<typeof stateSchema>>
 
 export const projection: Definition & { wire: NonNullable<Definition["wire"]> } = {
   key: 'dshBots',
-  stateVersion: 18,
+  stateVersion: 19,
   stateSchema: stateSchema as unknown as Definition['stateSchema'],
   init: (_header, inherited) => ({ inherited, group: null }),
   apply(state, event) {
     if (event.seq < state.inherited) return state
     const record = pluginRecordOf(event)
     if (record?.type === 'plugin:dsh-bots/checkpoint' && state.group && state.group.mode !== 'king') {
-      const parsed = groupCheckpointSchema.safeParse(record.data)
+      const parsed = groupCheckpointSchema.safeParse(compactCheckpoint(record.data))
       if (!parsed.success) return state
       const old = state.checkpoints?.find(item => item.botId === parsed.data.botId)
       if (old && old.revision >= parsed.data.revision) return state
@@ -166,22 +169,35 @@ export const projection: Definition & { wire: NonNullable<Definition["wire"]> } 
       const parsed = member.safeParse(record.data)
       return parsed.success ? { ...state, group: { ...state.group, coordinator: parsed.data } } : state
     }
+    if (record?.type === 'plugin:dsh-bots/reasoning' && state.group) {
+      const parsed=z.object({id:z.string(),offset:z.number().int().nonnegative(),text:z.string()}).safeParse(record.data)
+      if (!parsed.success) return state
+      const {id,offset,text}=parsed.data
+      return {...state,group:{...state.group,rows:state.group.rows.map(row => row.id===id && row.author==='bot' && (row.reasoning?.length ?? 0)===offset
+        ? {...row,reasoning:reasoningPreview((row.reasoning ?? '')+text)} : row)}}
+    }
     if (record?.type !== 'plugin:dsh-bots/rows' || !state.group) return state
     const parsed = z.array(row).safeParse(record.data)
     if (!parsed.success) return state
     const rows = new Map(state.group.rows.map(value => [value.id, value]))
-    for (const value of parsed.data) rows.set(value.id, value)
+    for (const value of parsed.data) {
+      const old = rows.get(value.id)
+      if (value.author==='bot') {
+        const reasoning = value.reasoning ?? (old?.author==='bot' ? old.reasoning : undefined)
+        rows.set(value.id,{...value,...(reasoning ? {reasoning:reasoningPreview(reasoning)} : {})})
+      } else rows.set(value.id,value)
+    }
     return { ...state, group: { ...state.group, rows: [...rows.values()] } }
   },
   wire: {
     summary: false,
     viewSchema: group.nullable() as unknown as NonNullable<Definition['wire']>['viewSchema'],
     view: state => state.group && state.pendingGroup ? {
-      ...state.group,
+      ...groupWindow(state.group)!,
       confirmation: {
         id: confirmationId(state.pendingGroup), ready: Boolean(state.pendingGroup.workspaceId),
         ...(state.pendingGroup.runTask ? { task: state.pendingGroup.topic } : {}),
       },
-    } : state.group,
+    } : groupWindow(state.group),
   },
 }

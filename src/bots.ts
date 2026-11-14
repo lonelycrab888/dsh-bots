@@ -5,13 +5,14 @@ import type { DiscussionTask } from './tasks.ts'
 import type { FileBlock } from '@deepseek-ai/dsh-llm'
 
 export const coordinatorId = 'coordinator'
-export const coordinatorName = 'KingBot'
+export const coordinatorName = 'King Arthur'
 export const legacyCoordinatorName = 'Bots King'
+export const previousCoordinatorName = 'KingBot'
 export const coordinatorDuty = '理解用户目标，按成员职责派发任务，汇总结果，并维护跨群聊的个人长期记忆。'
 // New profiles start without child Bots. Existing libraries remain user-owned.
 export const defaultLibrary: Library = { maxMembers: 4, bots: [], deletedBotIds: [] }
 export const normalizeName = (name: string) => name.normalize('NFKC').toLocaleLowerCase()
-export const isCoordinatorName = (name: string) => normalizeName(name.trim()) === normalizeName(coordinatorName)
+export const isCoordinatorName = (name: string) => [normalizeName(coordinatorName), 'king-arthur'].includes(normalizeName(name.trim()))
 export const botModelSchema = z.object({ provider: z.string().min(1), model: z.string().min(1), reasoningEffort: z.string().trim().min(1).max(120).optional() })
 export type BotModel = z.infer<typeof botModelSchema>
 export function modelForBot(library: { readonly kingModel?: BotModel; readonly bots: readonly Readonly<Bot>[] }, id: string, fallback: BotModel & { reasoningEffort?: string }) {
@@ -69,21 +70,21 @@ export type Row = (
   | { id: string; author: 'notice'; text: string; sessionId?: string; tone?: 'info'; taskLink?: string; groupReference?: true }
   | { id: string; author: 'bot'; botId: BotId; text: string; reasoning?: string; status: 'working' | 'done' | 'error' | 'stopped' | 'waiting'; execution?: MemberExecution; taskId?: string; resultKind?: 'partial' | 'final'; sessionId?: string; literal?: true; privateToKing?: true; groupReference?: true }
 ) & { at?: number }
-export interface Group { sessionEpoch?:number; mode?: 'group' | 'king' | 'bot'; botId?: string; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string; tasks?: DiscussionTask[]; activeTaskId?: string; confirmation?: { id: string; ready: boolean; task?: string } }
+export interface Group { totalRows?:number; sessionEpoch?:number; mode?: 'group' | 'king' | 'bot'; botId?: string; members: Member[]; coordinator?: Member; rows: Row[]; brief?: string; tasks?: DiscussionTask[]; activeTaskId?: string; confirmation?: { id: string; ready: boolean; task?: string } }
 
 /** An empty result asks the coordinator to select members. */
 export function resolveTargets(text: string, members: readonly Member[], isWorkspaceEntry?: (name: string) => boolean): Member[] {
   // The native composer serializes file references as @path or @"path with spaces".
   // A dot or slash inside the token must not turn its prefix into a Bot name.
   const unquoted = text.replace(/@"[^"\r\n]+"/gu, ' ')
-    .replace(/@Bots\s+King(?=$|[\s，。？！、,:：;；!?])/giu, '@主Bot')
+    .replace(/@(?:King\s+Arthur|Bots\s+King)(?=$|[\s）)】\]，。？！、,:：;；!?]|\.(?=$|\s))/giu, '@主Bot')
   const tokens = Array.from(unquoted.matchAll(/(?:^|[\s（(【\[，。？！、,:：;；!?])@([\p{L}\p{N}_-]+)(?=$|[\s）)】\]，。？！、,:：;；!?]|\.(?=$|\s))/gu), match => match[1])
   const result = new Set<Member>()
   for (const token of tokens) {
     const name = normalizeName(token)
     if (name === normalizeName('主Bot')) continue
     const namedMember = members.find(candidate => normalizeName(candidate.name) === name)
-    if (!namedMember && isCoordinatorName(token)) continue
+    if (!namedMember && (isCoordinatorName(token) || normalizeName(token) === normalizeName(previousCoordinatorName))) continue
     const member = namedMember ?? members.find(candidate => candidate.id === token.toLowerCase())
     if (!member && isWorkspaceEntry?.(token)) continue
     if (!member) throw new Error(`@${token} 不在当前群聊。请点名已加入的 Bot。`)
@@ -109,19 +110,19 @@ export function discussionTopic(text: string): string | undefined {
 export function parsePlan(output: string, members: Member[], required: Member[] = [], minTasks = 0): Plan {
   const source = output.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
   let input: unknown
-  try { input = JSON.parse(source) } catch { throw new Error('KingBot 没有返回有效的 JSON。') }
+  try { input = JSON.parse(source) } catch { throw new Error('King Arthur 没有返回有效的 JSON。') }
   const parsed = z.object({ tasks: z.array(z.object({ botId: z.string(), task: z.string().trim().min(1).max(6000) })).max(members.length).default([]), reply: z.string().max(12000).optional(), memoryActions: z.unknown().optional(), botActions: z.unknown().optional(), groupAction: z.unknown().optional(), existingGroupAction: z.unknown().optional() }).safeParse(input)
-  if (!parsed.success) throw new Error('KingBot 的回复格式有误，需要提供任务列表或文字答复')
+  if (!parsed.success) throw new Error('King Arthur 的回复格式有误，需要提供任务列表或文字答复')
   const plan = parsed.data
   if (plan.botActions == null || (Array.isArray(plan.botActions) && plan.botActions.length === 0)) delete plan.botActions
   if (plan.groupAction == null) delete plan.groupAction
   if (plan.existingGroupAction == null) delete plan.existingGroupAction
   if (plan.existingGroupAction !== undefined && (plan.groupAction !== undefined || plan.botActions !== undefined)) throw new Error('操作已有群不能同时新建群或成员。')
   const ids = plan.tasks.map(task => task.botId)
-  if (new Set(ids).size !== ids.length || ids.some(id => !members.some(member => member.id === id))) throw new Error('KingBot 分派了重复或未加入群聊的成员。')
+  if (new Set(ids).size !== ids.length || ids.some(id => !members.some(member => member.id === id))) throw new Error('King Arthur 分派了重复或未加入群聊的成员。')
   if (required.length && (required.some(member => !ids.includes(member.id)) || ids.some(id => !required.some(member => member.id === id)))) throw new Error('任务分派必须严格覆盖用户点名的成员。')
   if (ids.length < minTasks) throw new Error('讨论至少需要给两名子 Bot 分派任务。')
-  if (!ids.length && !plan.reply?.trim() && plan.botActions === undefined && plan.groupAction === undefined && plan.existingGroupAction === undefined) throw new Error('KingBot 未提供任务或直接答复。')
+  if (!ids.length && !plan.reply?.trim() && plan.botActions === undefined && plan.groupAction === undefined && plan.existingGroupAction === undefined) throw new Error('King Arthur 未提供任务或直接答复。')
   return plan
 }
 

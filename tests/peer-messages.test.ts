@@ -51,12 +51,12 @@ test('the last confirmed group link survives unrelated turns and subsequent noti
 })
 
 test('display mentions are idempotent and protect paths, URLs, and similar Latin names', () => {
-  const format = botMentionFormatter(['KingBot', '架构师', '审阅员'])
-  const text = 'KingBot请架构师和@审阅员检查 /tmp/架构师.txt 和 @"相对路径/架构师.txt"、@"/tmp/审阅员.md"、https://example.com/KingBot，KingBotX。'
+  const format = botMentionFormatter(['King Arthur', '架构师', '审阅员'])
+  const text = 'King Arthur请架构师和@审阅员检查 /tmp/架构师.txt 和 @"相对路径/架构师.txt"、@"/tmp/审阅员.md"、https://example.com/King Arthur，King ArthurX。'
   const result = format(text)
-  assert.match(result, /^@KingBot请@架构师和@审阅员/u)
+  assert.match(result, /^@King Arthur请@架构师和@审阅员/u)
   assert.ok(result.includes('/tmp/架构师.txt'))
   assert.ok(result.includes('@"/tmp/审阅员.md"'))
-  assert.ok(result.includes('https://example.com/KingBot，KingBotX。'))
+  assert.ok(result.includes('https://example.com/King Arthur，King ArthurX。'))
   assert.equal(format(result), result)
 })

@@ -25,12 +25,12 @@ class Fixture extends LlmAdapter {
     const prompt = messages.findLast(message => message.role === 'user' && message.source.kind === 'user')
     const systemText = system?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') ?? ''
     const speaker = systemText.match(/你是群聊中的「([^」]+)」/u)?.[1] ?? '默认'
-    const role = speaker === 'Bots King' ? 'KingBot' : speaker
+    const role = speaker === 'Bots King' ? 'King Arthur' : speaker
     const promptTexts = prompt?.content.flatMap(block => block.type === 'text' ? [block.text] : []) ?? []
     const input = promptTexts.find(text => !text.startsWith('[File ')) ?? ''
     const toolResults = prompt ? messages.slice(messages.indexOf(prompt) + 1).filter(message => message.role === 'tool') : []
     const moderator = systemText.includes('你是本场群聊的主持人') || systemText.includes('结合已有发言主持讨论')
-    const discussion = systemText.includes('你正在参加 KingBot 主持的讨论')
+    const discussion = systemText.includes('你正在参加 King Arthur 主持的讨论')
     const addressed = systemText.includes('用户直接点名了你')
     const summarizing = systemText.includes('请总结你主持的讨论')
     const intentCheck = systemText.includes('判断群聊用户新消息的语义')
@@ -40,7 +40,7 @@ class Fixture extends LlmAdapter {
     let failure
     let toolCall
     let text = `${role} | ${input.includes('架构说明') ? '看到了架构说明' : '已收到'}`
-    if (role === 'KingBot') {
+    if (role === 'King Arthur') {
       if (intentCheck) {
         const { 用户新消息: requested } = JSON.parse(latest)
         if (requested.includes('P038-STALE')) slow = true
@@ -79,10 +79,10 @@ class Fixture extends LlmAdapter {
         }
       } else if (summarizing) {
         const state = JSON.parse(latest)
-        text = 'KingBot | 讨论汇总完成'
+        text = 'King Arthur | 讨论汇总完成'
         if (state.议题.includes('P038-ROUTE') || state.议题.includes('P038-CONTROL')) {
           const latestBudget = [...state.用户最近要求 ?? []].reverse().flatMap(line => line.match(/(?:1000|1200|1400)/g) ?? [])[0]
-          text = `KingBot 汇总：${latestBudget ? '预算 ' + latestBudget : state.议题}。架构师与 @审阅员 已核对。`
+          text = `King Arthur 汇总：${latestBudget ? '预算 ' + latestBudget : state.议题}。架构师与 @审阅员 已核对。`
         }
         if (JSON.parse(latest).议题.includes('验收长时间轴汇总失败')) failure = '测试汇总模型失败'
       } else if (systemText.includes('这是你与用户的专属对话') && /方案\/流程助手|资料核对助手|方法论\/实验设计助手|这几个都帮我建立一下|额度验收助手/.test(latest)) {
@@ -119,7 +119,7 @@ class Fixture extends LlmAdapter {
         const members = JSON.parse(systemText.match(/只能向下列成员派发任务：(\[.*?\])。/su)[1])
         const required = JSON.parse(systemText.match(/用户点名的成员ID：(\[.*?\])。/su)[1])
         text = JSON.stringify({ tasks: members.filter(member => !required.length || required.includes(member.id)).map(member => ({ botId: member.id, task: '处理用户请求：' + latest })) })
-      } else text = 'KingBot | 汇总完成'
+      } else text = 'King Arthur | 汇总完成'
     } else if (discussion || addressed || role === '默认') {
       const state = discussion ? JSON.parse(latest) : { 议题: addressed ? latest : input, 已有讨论: [] }
       const last = state.已有讨论.at(-1)
@@ -243,7 +243,7 @@ class Fixture extends LlmAdapter {
         else if (tools.some(tool => tool.name === 'web_search')) toolCall = { name: 'web_search', arguments: '{"queries":["DSH fixture query"]}' }
       }
     }
-    if (role === 'KingBot' && systemText.includes('这是你与用户的专属对话') && latest.includes('P039-')) {
+    if (role === 'King Arthur' && systemText.includes('这是你与用户的专属对话') && latest.includes('P039-')) {
       const call = (name, args) => ({ name, arguments: JSON.stringify(args) })
       const results = toolResults.flatMap(result => result.content.filter(block => block.type === 'text').map(block => block.text))
       if (!results.length) toolCall = call('list_existing_groups', {})
@@ -259,7 +259,7 @@ class Fixture extends LlmAdapter {
         toolCall = call('operate_existing_group', { kind: delivery.kind, target: delivery.targetId, body: delivery.body })
       } else text = JSON.stringify({ reply: 'P039 工具调用已返回，请以宿主回执为准。' })
     }
-    if (role !== 'KingBot' && (discussion || addressed) && latest.includes('P039-')) {
+    if (role !== 'King Arthur' && (discussion || addressed) && latest.includes('P039-')) {
       const payload = JSON.parse(input)
       if (latest.includes('P039-READ') && !toolResults.length) toolCall = { name: 'read_group_history', arguments: JSON.stringify({ query: 'P039-MIDDLE' }) }
       text = JSON.stringify({ role, marker: 'P039-REPLY', hasHistory: Boolean(payload.群工作记忆?.recent?.length), compressed: payload.群工作记忆?.compressedSegments, results: toolResults.map(result => result.content) })
@@ -280,7 +280,7 @@ class Fixture extends LlmAdapter {
       if (summarizing) text = 'V040-RECOVERED ' + state.最新用户消息
     }
     if (intentCheck && JSON.parse(latest).用户新消息.includes('V040-INTENT-FAIL')) text = 'invalid classifier output'
-    const nativeKing = systemText.includes('你是 KingBot，用户的通用助手')
+    const nativeKing = systemText.includes('你是 King Arthur，用户的通用助手')
     if (nativeKing && input.includes('V040-')) {
       const call = (name, args) => ({ name, arguments: JSON.stringify(args) })
       const values = toolResults.map(result => result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
@@ -360,6 +360,15 @@ class Fixture extends LlmAdapter {
       }
       if(toolResults.some(result=>result.isError)){toolCall=undefined;text='V041-TOOL-FAILED '+JSON.stringify(toolResults)}
     }
+    if(nativeKing && input.includes('V043-SEED')) {
+      if(!toolResults.length)toolCall={name:'list_existing_groups',arguments:'{}'}
+      else if(toolResults.length===1){const value=JSON.parse(toolResults[0].content.find(block=>block.type==='text').text);toolCall={name:'fixture_history_rows',arguments:JSON.stringify({groupId:value.groups.find(group=>group.title.includes('共享记忆二群')).id})}}
+      else text='V043-SEEDED'
+    }
+    if(nativeKing && input.includes('V043-RECALL')) {
+      if(!toolResults.length)toolCall={name:'read_shared_group_memory',arguments:JSON.stringify({query:'V043-HISTORY-0'})}
+      else text='V043-RECALLED '+JSON.stringify(toolResults.map(result=>result.content))
+    }
     if (latest?.includes('V042-FILES')) {
       const path=join(process.env.DSH_HOME,'documents','deepseek-harness','default-workspace','交付 报告.bin')
       const encoded=path.split('/').map(encodeURIComponent).join('/')
@@ -377,7 +386,7 @@ class Fixture extends LlmAdapter {
         calledTool: toolCall?.name, failure,
         ...(/P038-TEST-0[23]|P039-|V040-|V041-/u.test(input) ? { toolResults: toolResults.map(result => result.content), proposed: toolCall } : {}), tools: (tools ?? []).map(tool => tool.name) }) + '\n')
     }
-    if (role !== 'KingBot' && latest?.includes('P039-STREAM')) {
+    if (role !== 'King Arthur' && latest?.includes('P039-STREAM')) {
       yield { type: 'block-start', index: 0, blockType: 'text' }
       for (let i = 0; i < 14; i++) { yield { type: 'text-delta', index: 0, text: `持续输出 ${i}；` }; await delay(10_000, undefined, { signal }) }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: '持续输出结束' } }
@@ -418,15 +427,33 @@ export async function apply(ctx) {
       const visible=ctx.agents.list().filter(agent=>!ctx.workspaceRegistry.archivedSessionIds.includes(agent.id))
       const king=visible.find(agent=>ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='king')
       const workspace=ctx.workspaceRegistry.list().find(item=>item.sessionIds.includes(king?.id))
-      if(!king||!workspace||workspace.sessionIds[0]!==king.id)throw new Error('KingBot is not first in its workspace')
+      if(!king||!workspace||workspace.sessionIds[0]!==king.id)throw new Error('King Arthur is not first in its workspace')
       const allowed=new Set(visible.filter(agent=>['king','bot'].includes(ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode)).map(agent=>agent.id))
       if(workspace.sessionIds.some(id=>!ctx.workspaceRegistry.archivedSessionIds.includes(id)&&!allowed.has(id)))throw new Error('Manual New Session left an extra workspace conversation')
       const pins=JSON.stringify(ctx.workspaceRegistry.pinnedSessionIds)
       await workspace.insertSessionBefore(king.id)
       for(let attempt=0;attempt<100&&workspace.sessionIds[0]!==king.id;attempt++)await delay(10)
-      if(workspace.sessionIds[0]!==king.id)throw new Error('KingBot order did not recover after manual reorder')
+      if(workspace.sessionIds[0]!==king.id)throw new Error('King Arthur order did not recover after manual reorder')
       if(JSON.stringify(ctx.workspaceRegistry.pinnedSessionIds)!==pins)throw new Error('Workspace ordering changed global pins')
       return JSON.stringify(visible.filter(agent=>ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='bot').map(agent=>({sessionId:String(agent.id),botId:ctx.sessionProjections.stateOf(agent.session,'dshBots').group.botId,kingFirst:true})))
+    }
+  }))
+  ctx.tools.register(defineTool({
+    name:'fixture_history_rows',description:'Seed isolated history pagination fixture.',parameters:{groupId:{type:'string',required:true}},
+    output:{schema:{type:'string'},render:(_,text)=>[{type:'text',text}]},
+    async execute({groupId}) {
+      const resolved=await ctx.sessionController.resolveAgent(SessionId(groupId))
+      if('error' in resolved)throw resolved.error
+      const task={...newTask('v043-old-task','V043 旧议题'),status:'paused',attempts:[{rowId:'v043-old-result',botId:'coordinator',name:'King Arthur',question:'历史汇总'}]}
+      appendPluginRecord(resolved.agent.session,'plugin:dsh-bots/task',{task,active:true})
+      appendPluginRecord(resolved.agent.session,'plugin:dsh-bots/rows',[{id:'v043-old-result',author:'bot',botId:'coordinator',status:'done',taskId:task.id,resultKind:'final',text:'V043-OLD-SUMMARY 历史汇总'}])
+      appendPluginRecord(resolved.agent.session,'plugin:dsh-bots/rows',Array.from({length:160},(_,i)=>({id:'v043-history-'+i,author:'user',text:'V043-HISTORY-'+i+' 原始历史记录'})))
+      await ctx.sessions.flush(resolved.agent.session)
+      const king=ctx.agents.list().find(agent=>agent.session.header.origin!=='subagent'&&ctx.sessionProjections.stateOf(agent.session,'dshBots').group?.mode==='king')
+      if(!king)throw new Error('Missing main chat for legacy-title migration fixture')
+      ctx.get('sessionTitle').rename(king.session,'KingBot')
+      await ctx.sessions.flush(king.session)
+      return 'seeded'
     }
   }))
   ctx.tools.register(defineTool({

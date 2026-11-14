@@ -4,9 +4,14 @@ import type { Row } from './bots.ts'
 // Conservative multilingual token estimate, not a provider tokenizer. Reserve the
 // remainder of the model context for instructions, tool responses and output.
 export const contextBudget = 6000
-export function tokens(text: string): number {
-  return (text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}_]+|[^\s]/gu) ?? [])
-    .reduce((sum, word) => sum + (/^[\x00-\x7f]+$/u.test(word) ? Math.ceil(word.length / 3) : word.length), 0)
+export function tokens(text: string, ceiling = Infinity): number {
+  let count=0
+  for(const match of text.matchAll(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}_]+|[^\s]/gu)) {
+    const word=match[0]
+    count += /^[\x00-\x7f]+$/u.test(word) ? Math.ceil(word.length/3) : word.length
+    if(count>ceiling)break
+  }
+  return count
 }
 export function excerpt(text: string, budget: number) {
   let used = 0
@@ -32,13 +37,20 @@ export function visibleHistory(rows: readonly Row[]) {
   return rows.filter(row => row.author === 'user' || row.author === 'notice' ||
     row.author === 'bot' && !row.privateToKing && row.status !== 'working')
 }
-const terms = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9_-]+|[\p{Script=Han}]{2}/gu) ?? [])
+const terms = (text:string) => {const found=new Set<string>();for(const match of text.toLowerCase().matchAll(/[a-z0-9_-]+|[\p{Script=Han}]{2}/gu)){found.add(match[0].slice(0,128));if(found.size>=4096)break}return found}
 export function retrieveHistory(rows: readonly Row[], query: string, ids: string[] = []) {
   const wanted = new Set(ids)
   const keys = terms(query)
-  return visibleHistory(rows).map((row, index) => ({ row, index,
-    score: wanted.has(row.id) ? 1e6 : [...terms(row.text)].filter(word => keys.has(word)).length,
-  })).filter(item => item.score > 0).sort((a, b) => b.score - a.score || b.index - a.index).map(item => item.row)
+  const ranked: {row:Row;index:number;score:number}[]=[]
+  for(let index=0;index<rows.length;index++) {
+    const row=rows[index]
+    if(row.author==='bot'&&(row.privateToKing||row.status==='working'))continue
+    const score=wanted.has(row.id)?1e6:[...terms(row.text)].filter(word=>keys.has(word)).length
+    if(!score)continue
+    ranked.push({row,index,score});ranked.sort((a,b)=>b.score-a.score||b.index-a.index)
+    if(ranked.length>32)ranked.pop()
+  }
+  return ranked.map(item=>item.row)
 }
 function segment(rows: Row[]) {
   return {
@@ -46,7 +58,9 @@ function segment(rows: Row[]) {
     // Extracts are quotations, never model-inferred "confirmed" facts.
     digest: rows.map(row => `[${row.id}] ${row.author === 'bot' ? row.botId : row.author}: ${excerpt(row.text, 70)}`).join('\n'),
     facts: rows.flatMap(row => {
-      const values = row.text.match(/(?:\d+(?:\.\d+)?(?:%|元|万元|小时|天)?)|(?:sha256:|nonce[:： ]+|messageId[:： ]+)[\w-]+|(?:\/(?:[^\s/]+\/)*[^\s]+)|(?:不要|不得|不能|必须|更正|纠正)[^。\n]+/gu) ?? []
+      const matches = row.text.matchAll(/(?:\d+(?:\.\d+)?(?:%|元|万元|小时|天)?)|(?:sha256:|nonce[:： ]+|messageId[:： ]+)[\w-]+|(?:\/(?:[^\s/]+\/)*[^\s]+)|(?:不要|不得|不能|必须|更正|纠正)[^。\n]+/gu)
+      const values:string[]=[]
+      for(const match of matches){values.push(match[0].slice(0,160));if(values.length>=8)break}
       return values.length ? [{ source: row.id, values }] : []
     }),
   }
@@ -58,7 +72,7 @@ export function prepareContext(rows: readonly Row[], botId: string, taskId: stri
   let split = visible.length
   while (split > 0) {
     const row = visible[split - 1]
-    const cost = tokens(row.text) + tokens(row.id) + 24
+    const cost = tokens(row.text,recentBudget+1) + tokens(row.id) + 24
     if (cost > recentBudget && recent.length) break
     const text = excerpt(row.text, Math.max(1, recentBudget - tokens(row.id) - 24))
     recent.unshift({ id: row.id, author: row.author === 'bot' ? row.botId : row.author, text,
@@ -68,17 +82,18 @@ export function prepareContext(rows: readonly Row[], botId: string, taskId: stri
     if (text !== row.text || recentBudget <= 0) break
   }
   const older = visible.slice(0, split)
+  const summaryRows = older.slice(-512)
   // Only reuse exact prefix coverage; a changed projection cannot silently skip rows.
   const segments: GroupCheckpoint['segments'] = []
   let offset = 0
-  for (const old of previous?.segments ?? []) {
-    if (!old.ids.every((id, i) => older[offset + i]?.id === id)) break
+  for (const old of (previous?.segments ?? []).slice(0,64)) {
+    if (!old.ids.every((id, i) => summaryRows[offset + i]?.id === id)) break
     segments.push(old); offset += old.ids.length
   }
-  while (offset < older.length) {
-    let end = offset + 1, size = tokens(older[offset].text)
-    while (end < older.length && end - offset < 16 && size + tokens(older[end].text) < 2000) size += tokens(older[end++].text)
-    segments.push(segment(older.slice(offset, end))); offset = end
+  while (offset < summaryRows.length && segments.length < 64) {
+    let end = offset + 1, size = tokens(summaryRows[offset].text,2000)
+    while (end < summaryRows.length && end - offset < 16 && size + tokens(summaryRows[end].text,2000) < 2000) size += tokens(summaryRows[end++].text,2000)
+    segments.push(segment(summaryRows.slice(offset, end))); offset = end
   }
   const checkpoint: GroupCheckpoint = { version: 1, botId, taskId, cursor: visible.at(-1)?.id,
     revision: (previous?.revision ?? 0) + 1, segments }
@@ -96,4 +111,16 @@ export function prepareContext(rows: readonly Row[], botId: string, taskId: stri
     recent, recalled, cursor: checkpoint.cursor,
     historyTool: 'read_group_history 可按原消息 ID、关键词或游标回读完整原文，长消息分页；本群记录不会因打断被清除。',
   } }
+}
+
+export function compactCheckpoint(value: unknown): unknown {
+  if(!value || typeof value!=='object')return value
+  const data=value as Record<string,unknown>
+  if(!Array.isArray(data.segments))return value
+  return {...data,segments:data.segments.slice(-64).map(segment=>{
+    if(!segment||typeof segment!=='object')return segment
+    return {...segment,ids:Array.isArray(segment.ids)?segment.ids.slice(0,16):segment.ids,
+      digest:typeof segment.digest==='string'?segment.digest.slice(0,2400):segment.digest,
+      facts:Array.isArray(segment.facts)?segment.facts.slice(0,16).map((fact:any)=>({...fact,values:Array.isArray(fact?.values)?fact.values.slice(0,8).map((v:unknown)=>typeof v==='string'?v.slice(0,160):v):fact?.values})):segment.facts}
+  })}
 }

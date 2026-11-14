@@ -44,7 +44,7 @@ export function outcomeText(execution: MemberExecution, fallback: string) {
     case 'model-timeout': return '模型暂时无响应，已保留进度。可以继续当前任务。'
     case 'tool-timeout': return `子 Bot 工具返回超时${suffix}。`
     case 'child-deadline': return '本次运行已到上限，保留的内容尚未完成。可以继续；有结果待核对的操作会先暂停。'
-    case 'host-wait': return `KingBot 等待成员结果到期${suffix}，该成员尚未交回结果。`
+    case 'host-wait': return `King Arthur 等待成员结果到期${suffix}，该成员尚未交回结果。`
     case 'approval-denied': return `宿主拒绝该操作${suffix}。需要交互审批时，请在普通对话发起并按宿主提示确认。`
     default: return fallback
   }

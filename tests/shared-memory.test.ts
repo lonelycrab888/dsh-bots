@@ -16,7 +16,7 @@ test('group memory keeps source IDs, full originals, status and persistence with
     store.sync('A','同名群',group('甲群结论 budget 12'))
     store.sync('B','同名群',group('乙群结论 budget 34'))
     store.sync('private','独聊',{...group('PRIVATE-CHAT'),mode:'bot',botId:'bot-a'})
-    store.sync('king','KingBot',{...group('KING-PRIVATE'),mode:'king'})
+    store.sync('king','King Arthur',{...group('KING-PRIVATE'),mode:'king'})
     store.sync('hidden','隐藏',{members:[],rows:[{id:'hidden',author:'bot',botId:'a',status:'done',text:'SECRET',privateToKing:true},{id:'pending',author:'bot',botId:'a',status:'working',text:'PENDING'}]})
     assert.deepEqual(new Set(store.read(0,{query:'budget'}).messages.map(row=>row.groupId)),new Set(['A','B']))
     for (const query of ['PRIVATE','SECRET','PENDING','REASONING']) assert.equal(store.read(0,{query}).messages.length,0)

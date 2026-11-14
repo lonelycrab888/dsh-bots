@@ -91,7 +91,7 @@ export function parseExistingGroupRequest(original: string): ExistingGroupReques
   if (follow) return make('send', '这个群', follow[1])
   const task = new RegExp('^' + polite + '(?:让|交给)\\s*(.+?)\\s*(?:讨论|分析|研究|处理|完成)(?:一下)?\\s*(.+)$', 'su').exec(mask)
   if (task) return make('task', task[1], task[2])
-  const joined = /^(?:你|KingBot)\s*(?:进(?:入)?|加入|在)\s*(.+?)\s*(?:了吗|了么|吗|没有)[？?]?(?:[，,。；;]\s*(.*))?$/isu.exec(mask)
+  const joined = /^(?:你|King\s+Arthur|KingBot)\s*(?:进(?:入)?|加入|在)\s*(.+?)\s*(?:了吗|了么|吗|没有)[？?]?(?:[，,。；;]\s*(.*))?$/isu.exec(mask)
   if (joined) {
     const message = new RegExp('^' + polite + send + '\\s*(.*)$', 'su').exec(joined[2] ?? '')
     return make(message ? 'send' : 'locate', joined[1], message?.[1])

@@ -15,9 +15,22 @@ const request = { mode:'strict' as const, typeSymbol:'dsh-bots#KingRequest', cre
 const resetRequest={mode:'strict' as const,typeSymbol:'dsh-bots#ResetRequest',create:()=>z.object({options:resetOptions,revision:z.number().int(),confirmation:z.literal('RESET')})}
 export const catalogInput = z.object({ library:z.unknown(),revision:z.number().int() })
 const catalogRequest={mode:'strict' as const,typeSymbol:'dsh-bots#CatalogRequest',create:()=>catalogInput}
+const historyRequest={mode:'strict' as const,typeSymbol:'dsh-bots#HistoryPage',create:()=>z.object({before:z.string().optional(),around:z.string().optional()})}
 const documentRow={mode:'strict' as const,typeSymbol:'string',create:()=>z.string()}
 const documentIndex={mode:'strict' as const,typeSymbol:'number',create:()=>z.number().int().nonnegative()}
 export const KING_REMOTE = createTypertRemoteInfo({package:'dsh-bots',methods:{
+  'dshBots/taskSummary': {
+    service:'dshBots',invocation:{kind:'direct'},scope:{context:'agent',wire:'agentId'},
+    parameters:[{name:'agent',wire:'agentId',source:'lookup',lookup:'agent',codec:identity,strictCodec:identity},
+      {name:'taskId',source:'json',codec:documentRow,strictCodec:documentRow}],
+    result:{mode:'strict',typeSymbol:'string',create:()=>z.string()},
+  },
+  'dshBots/historyPage': {
+    service:'dshBots',invocation:{kind:'direct'},scope:{context:'agent',wire:'agentId'},
+    parameters:[{name:'agent',wire:'agentId',source:'lookup',lookup:'agent',codec:identity,strictCodec:identity},
+      {name:'request',source:'json',codec:historyRequest,strictCodec:historyRequest}],
+    result:{mode:'strict',typeSymbol:'string',create:()=>z.string()},
+  },
   'dshBots/downloadDocument': {
     service:'dshBots', invocation:{kind:'direct'}, scope:{context:'agent',wire:'agentId'},
     parameters:[

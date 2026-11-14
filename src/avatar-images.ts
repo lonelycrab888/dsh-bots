@@ -1,5 +1,5 @@
-import kingLight from './avatars/Kingbot.png'
-import kingDark from './avatars/Kingbot-white.png'
+import kingLight from './avatars/king-arthur.png'
+import kingDark from './avatars/king-arthur-white.png'
 import image0 from './avatars/fish-logo-anglerfish.png'
 import image1 from './avatars/fish-logo-betta.png'
 import image2 from './avatars/fish-logo-clownfish.png'

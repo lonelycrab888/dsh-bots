@@ -54,7 +54,7 @@ test('recovery derives completed work and outstanding attempts from the same sav
 test('screenshot confirmations and explicit King continuations keep the active task among three topics', () => {
   const tasks = ['立项书', '竞争工作和 baseline', '重新安排调研'].map((goal, i) => ({ ...newTask(String(i), goal), status: 'paused' as const }))
   const group: Group = { members: [], rows: [], tasks, activeTaskId: '2' }
-  for (const text of ['已核对，继续', '@KingBot 已核对，继续', '@KingBot 继续组织大家基于现有结果按照开始时的议题讨论。']) {
+  for (const text of ['已核对，继续', '@King Arthur 已核对，继续', '@King Arthur 继续组织大家基于现有结果按照开始时的议题讨论。']) {
     const control = taskControl(text)!
     assert.equal(findTask(group, control.query, true), tasks[2])
   }

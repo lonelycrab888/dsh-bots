@@ -91,8 +91,8 @@ test('explicit continuation bypasses classification and technical failures retai
   const fail = async () => { throw new Error('model timeout') }
   for (const text of [
     '可以，就按照你说的做',
-    '@KingBot 整合当前调研专家的所有结果，继续组织大家按照开始时的议题讨论。',
-    '@KingBot 继续组织大家基于现有结果按照开始时的议题讨论。',
+    '@King Arthur 整合当前调研专家的所有结果，继续组织大家按照开始时的议题讨论。',
+    '@King Arthur 继续组织大家基于现有结果按照开始时的议题讨论。',
   ]) {
     assert.ok(followsCurrentDiscussion(text))
     assert.deepEqual(await resolveDiscussionIntent(text, true, fail), { kind: 'continue' })
@@ -117,6 +117,6 @@ test('long moderator summaries retain their final proposed next step', () => {
 
 
 test('group greetings and thanks reply directly, while tasks and member mentions keep normal routing',()=>{
- for(const text of ['你好','你好！','大家好','@KingBot 你好','谢谢','@主Bot 在吗？','Hi everyone!','你是谁']) assert.ok(groupSmallTalkReply(text),text)
+ for(const text of ['你好','你好！','大家好','@King Arthur 你好','@king arthur 你好','@KingBot 你好','谢谢','@主Bot 在吗？','Hi everyone!','你是谁']) assert.ok(groupSmallTalkReply(text),text)
  for(const text of ['你好，请帮我写初稿','谢谢，继续讨论','@调研专家 你好','@调研专家 @审阅员 你好','可以，就按你说的做','请解释“你好”的意思','hello world 程序怎么写','早期项目分析','好的，继续','好','可以']) assert.equal(groupSmallTalkReply(text),undefined,text)
 })

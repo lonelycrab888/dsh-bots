@@ -6,12 +6,16 @@ import { applyMemoryActions, memoryEntrySchema, validateMemory, forgetBotIds, ty
 
 // Chinese bigrams supplement word tokens; no external embedding service is needed.
 export function searchTokens(text: string, limit = 256): string[] {
-  const words = text.normalize('NFKC').toLowerCase().match(/[a-z0-9_-]{2,}|[\p{Script=Han}]+/gu) ?? []
-  return [...new Set(words.flatMap(word => {
-    if (!/\p{Script=Han}/u.test(word)) return [word]
-    const characters = Array.from(word)
-    return characters.slice(0, -1).map((char, i) => char + characters[i + 1])
-  }))].slice(0, limit)
+  const found = new Set<string>()
+  const maximum = Math.min(4096,Math.max(0,limit))
+  if (!maximum) return []
+  for (const match of text.normalize('NFKC').toLowerCase().matchAll(/[a-z0-9_-]{2,}|[\p{Script=Han}]+/gu)) {
+    const word=match[0]
+    if (!/\p{Script=Han}/u.test(word)) found.add(word.slice(0,128))
+    else { let last=''; for (const character of word) { if(last)found.add(last+character);last=character;if(found.size>=maximum)break } }
+    if(found.size>=maximum)break
+  }
+  return [...found]
 }
 export interface MemoryPage { entries: MemoryEntry[]; total: number; active: number; revision: number; path: string }
 export class WorkspaceMemory {
@@ -36,7 +40,7 @@ export class WorkspaceMemory {
       CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,operation TEXT NOT NULL,payload TEXT NOT NULL);`)
     chmodSync(this.path, 0o600)
     if (!existsSync(join(directory, '.gitignore'))) writeFileSync(join(directory, '.gitignore'), '*\n', { mode: 0o600 })
-    if (!existsSync(join(directory, 'README.md'))) writeFileSync(join(directory, 'README.md'), '# KingBot memory\n\nking-memory.sqlite stores workspace memories, a full-text index, revision counters and an audit log. Manage entries in Bots → KingBot. Close Harness before copying the database and its WAL files. Uninstalling the plugin preserves this directory.\n', { mode: 0o600 })
+    if (!existsSync(join(directory, 'README.md'))) writeFileSync(join(directory, 'README.md'), '# King Arthur memory\n\nking-memory.sqlite stores workspace memories, a full-text index, revision counters and an audit log. Manage entries in Bots → King Arthur. Close Harness before copying the database and its WAL files. Uninstalling the plugin preserves this directory.\n', { mode: 0o600 })
   }
   close() { this.db.close() }
   revision() { return Number((this.db.prepare("SELECT value FROM meta WHERE key='revision'").get() as { value: string }).value) }
